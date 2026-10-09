@@ -1,0 +1,8 @@
+{
+  "name": "Remix Tira y Afloja: Supervivencia",
+  "description": "Juego interactivo en vivo para TikTok Live donde Team Rojo y Team Azul compiten halando la soga con comentarios, likes y regalos en estilo pixel art 8-bits.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

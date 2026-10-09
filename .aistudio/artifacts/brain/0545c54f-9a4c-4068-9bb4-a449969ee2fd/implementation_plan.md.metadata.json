@@ -1,0 +1,6 @@
+{
+  "summary":  "Plan de implementación para el Estudio de Sprites, Activos y Manejador de Fotogramas: subida de imagen de referencia con overlay de opacidad sobre la arena, subida modular de elementos estáticos (fondo, pilares/bases, soga, bandana), y manejador de fotogramas con soporte dual (múltiples PNGs o Sprite Sheet continuo) con bucle infinito para Chica y Chico.",
+  "updatedAt":  "2026-10-09T03:15:20.660236848Z",
+  "requestFeedback":  true,
+  "userFacing":  true
+}

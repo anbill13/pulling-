@@ -1,0 +1,20 @@
+@import "tailwindcss";
+
+:root {
+  font-family: 'Outfit', sans-serif;
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background-color: #0a0a0c;
+  color: #ffffff;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Ensure pixel fonts render with crisp aesthetic */
+.font-pixel {
+  font-family: 'Press Start 2P', monospace;
+}

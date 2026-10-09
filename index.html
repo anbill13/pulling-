@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Tira y Afloja: Supervivencia</title>
+    <meta name="description" content="Juego interactivo en vivo para TikTok Live donde Team Rojo y Team Azul compiten halando la soga con comentarios, likes y regalos en estilo pixel art 8-bits." />
+    <meta property="og:title" content="Tira y Afloja: Supervivencia" />
+    <meta property="og:description" content="Juego interactivo en vivo para TikTok Live donde Team Rojo y Team Azul compiten halando la soga con comentarios, likes y regalos en estilo pixel art 8-bits." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Outfit:wght@400;600;700;900&display=swap" rel="stylesheet">
+    <script>
+      // Ignore HMR / Vite WebSocket disconnect errors in AI Studio preview iframe
+      window.addEventListener('unhandledrejection', function(event) {
+        if (event && event.reason && (
+          String(event.reason).includes('WebSocket closed without opened') ||
+          String(event.reason?.message).includes('WebSocket closed without opened')
+        )) {
+          event.preventDefault();
+        }
+      });
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+

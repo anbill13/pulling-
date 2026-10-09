@@ -23,6 +23,9 @@ export const DEFAULT_CUSTOM_ASSETS: CustomGameAssets = {
   semaphoreRightHeightPercent: 32,
   metaRojoPercent: 34, // Línea de meta independiente para rojo
   metaAzulPercent: 66, // Línea de meta independiente para azul
+  showMetaLines: true, // Visibilidad de las líneas de meta (permite ocultarlas)
+  difficultyMode: 'hard', // Modo competitivo difícil por defecto
+  pointScaleMultiplier: 0.35, // Menos puntos y empuje para mayor esfuerzo competitivo
   ropeWidthPercent: 160, // Extensión/ancho de la soga (permite encogerla)
   ropeThicknessPx: 14,
   bandanaScalePercent: 85,

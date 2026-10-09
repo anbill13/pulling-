@@ -105,15 +105,6 @@ export const TopBar: React.FC<TopBarProps> = ({
               <Bot size={13} className={isSimulatingChat ? 'text-indigo-400 animate-pulse' : 'text-neutral-500'} />
               <span className="hidden sm:inline">Modo Prueba:</span>
               <span>{isSimulatingChat ? 'Bots ON' : 'Bots PAUSA'}</span>
-              {onToggleSimulateChat && (
-                <button
-                  onClick={onToggleSimulateChat}
-                  className="ml-1 text-[10px] bg-indigo-700/80 hover:bg-indigo-600 text-white px-1.5 py-0.5 rounded cursor-pointer transition-colors"
-                  title={isSimulatingChat ? 'Pausar interacción de bots' : 'Reanudar interacción de bots'}
-                >
-                  {isSimulatingChat ? 'Pausar' : 'Activar'}
-                </button>
-              )}
             </div>
           )}
 
@@ -202,14 +193,23 @@ export const TopBar: React.FC<TopBarProps> = ({
               )}
             </div>
           ) : (
-            <div
-              className={`text-2xl sm:text-3xl font-black font-['Press_Start_2P'] ${
-                timeLeft <= 20
-                  ? 'text-red-500 animate-pulse scale-105 drop-shadow-[0_0_10px_rgba(239,68,68,0.7)]'
-                  : 'text-[#ffd24a]'
-              }`}
-            >
-              {timeLeft}s
+            <div className="flex flex-col items-center">
+              <div
+                className={`font-black font-['Press_Start_2P'] transition-all ${
+                  timeLeft === 0
+                    ? 'text-xs sm:text-sm text-yellow-300 animate-pulse bg-red-600/40 px-2 py-1 rounded border border-red-500/80 shadow-[0_0_12px_rgba(239,68,68,0.7)]'
+                    : timeLeft <= 20
+                    ? 'text-2xl sm:text-3xl text-red-500 animate-pulse scale-105 drop-shadow-[0_0_10px_rgba(239,68,68,0.7)]'
+                    : 'text-2xl sm:text-3xl text-[#ffd24a]'
+                }`}
+              >
+                {timeLeft === 0 ? '⚡ MUERTE SÚBITA' : `${timeLeft}s`}
+              </div>
+              {timeLeft === 0 && (
+                <span className="text-[8px] font-pixel text-yellow-200 uppercase mt-0.5 animate-bounce">
+                  ¡Bandana a la Meta!
+                </span>
+              )}
             </div>
           )}
 
@@ -222,8 +222,8 @@ export const TopBar: React.FC<TopBarProps> = ({
           {/* Champion Duel Line */}
           {phase === 'round' && championDuel.rojoLeader && championDuel.azulLeader && (
             <div className="text-[9px] sm:text-[10px] text-amber-200/90 font-medium truncate max-w-full">
-              ⚔️ Duelo: {championDuel.rojoLeader.number} {championDuel.rojoLeader.name} ({championDuel.rojoLeader.points}) vs{' '}
-              {championDuel.azulLeader.number} {championDuel.azulLeader.name} ({championDuel.azulLeader.points})
+              ⚔️ Duelo: {championDuel.rojoLeader.number} {championDuel.rojoLeader.name} ({Number.isInteger(championDuel.rojoLeader.points) ? championDuel.rojoLeader.points : Number(championDuel.rojoLeader.points.toFixed(2))}) vs{' '}
+              {championDuel.azulLeader.number} {championDuel.azulLeader.name} ({Number.isInteger(championDuel.azulLeader.points) ? championDuel.azulLeader.points : Number(championDuel.azulLeader.points.toFixed(2))})
             </div>
           )}
         </div>

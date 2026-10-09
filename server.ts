@@ -2,6 +2,7 @@ import express from 'express';
 import http from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import path from 'path';
+import fs from 'fs';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -59,7 +60,14 @@ function cleanUsername(raw: string): string {
   return (raw || '').trim().replace(/^@+/, '');
 }
 
-app.use(express.json());
+app.use(express.json({ limit: '60mb' }));
+app.use(express.urlencoded({ limit: '60mb', extended: true }));
+
+const assetsDir = path.join(process.cwd(), 'public', 'assets');
+if (!fs.existsSync(assetsDir)) {
+  fs.mkdirSync(assetsDir, { recursive: true });
+}
+app.use('/assets', express.static(assetsDir));
 
 // Set of connected frontend WebSockets
 const clients = new Set<WebSocket>();
@@ -121,6 +129,50 @@ app.get('/api/status', (_req, res) => {
     mode: isTikTokConnected ? 'live' : activeTikTokUsername ? 'offline' : 'test',
     clients: clients.size,
   });
+});
+
+// REST endpoint to upload and save custom background music
+app.post('/api/upload-bgm', (req, res) => {
+  try {
+    const { audioData, filename } = req.body;
+    if (!audioData) {
+      return res.status(400).json({ error: 'Faltan datos de audio' });
+    }
+    const base64Data = audioData
+      .replace(/^data:audio\/\w+;base64,/, '')
+      .replace(/^data:application\/octet-stream;base64,/, '');
+    const buffer = Buffer.from(base64Data, 'base64');
+    const ext = filename && filename.endsWith('.wav') ? '.wav' : filename && filename.endsWith('.ogg') ? '.ogg' : '.mp3';
+    const fileName = `custom_bgm${ext}`;
+    const targetPath = path.join(process.cwd(), 'public', 'assets', fileName);
+    fs.writeFileSync(targetPath, buffer);
+    console.log(`[Audio] Nueva música de fondo guardada en: ${targetPath} (${buffer.length} bytes)`);
+    res.json({
+      success: true,
+      url: `/assets/${fileName}`,
+      size: buffer.length,
+    });
+  } catch (err: any) {
+    console.error('[Audio Upload Error]:', err);
+    res.status(500).json({ error: err.message || 'Error al guardar audio' });
+  }
+});
+
+// REST endpoint to check if custom background music exists
+app.get('/api/custom-bgm', (_req, res) => {
+  const mp3Path = path.join(process.cwd(), 'public', 'assets', 'custom_bgm.mp3');
+  const wavPath = path.join(process.cwd(), 'public', 'assets', 'custom_bgm.wav');
+  const oggPath = path.join(process.cwd(), 'public', 'assets', 'custom_bgm.ogg');
+  if (fs.existsSync(mp3Path)) {
+    return res.json({ exists: true, url: '/assets/custom_bgm.mp3' });
+  }
+  if (fs.existsSync(wavPath)) {
+    return res.json({ exists: true, url: '/assets/custom_bgm.wav' });
+  }
+  if (fs.existsSync(oggPath)) {
+    return res.json({ exists: true, url: '/assets/custom_bgm.ogg' });
+  }
+  return res.json({ exists: false, url: null });
 });
 
 // REST endpoint to change TikTok username at runtime

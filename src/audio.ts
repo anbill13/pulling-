@@ -1,19 +1,23 @@
 import { CONFIG } from './config';
 
-export type RetroTrackId = 'battle' | 'arcade' | 'boss';
+export type RetroTrackId = 'custom' | 'battle' | 'arcade' | 'boss';
 
 /**
- * Authentic 8-Bit Retro Chiptune Web Audio Synthesizer Engine.
- * Emulates classic NES / Game Boy sound chips:
- * - Square Wave Channels (Pulse 1 for Lead, Pulse 2 for fast Arpeggios)
- * - Triangle Wave Channel (Unfiltered stepped Bass)
- * - White Noise Channel (ADSR shaped 8-bit Noise Drums)
- * Zero external audio files. 100% procedural retro chiptune synthesis.
+ * Authentic 8-Bit Retro Chiptune & Custom Soundtrack Audio Engine.
+ * Supports:
+ * - Custom soundtrack playback (MP3 / WAV / OGG uploaded by the streamer)
+ * - Emulated 8-bit NES chiptune synthesizers (Pulse, Triangle, Noise)
+ * - Automatic music ducking during announcements and voiceover alerts
  */
 class AudioManager {
   private ctx: AudioContext | null = null;
   private isUnlocked: boolean = false;
   private isMuted: boolean = false;
+  private masterVolume: number = CONFIG.masterVolume ?? 0.6; // 0.0 to 1.0
+
+  // Custom Soundtrack Player
+  private customAudioElement: HTMLAudioElement | null = null;
+  private customAudioUrl: string | null = null;
 
   // Master Gain & Busses
   private masterGain: GainNode | null = null;
@@ -36,10 +40,29 @@ class AudioManager {
   private currentTrack: RetroTrackId = 'battle';
 
   // Ducking state
+  private isDangerDucked: boolean = false;
+  private isAnnouncementDucked: boolean = false;
   private duckTimer: number | null = null;
 
   constructor() {
-    // AudioContext is initialized on first user interaction
+    // Check if custom soundtrack exists in localStorage or server
+    try {
+      if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+        const storedUrl = localStorage.getItem('custom_bgm_url');
+        if (storedUrl) {
+          this.setCustomAudioUrl(storedUrl);
+        } else if (typeof fetch !== 'undefined') {
+          fetch('/api/custom-bgm')
+            .then((r) => r.json())
+            .then((data) => {
+              if (data?.exists && data.url) {
+                this.setCustomAudioUrl(data.url);
+              }
+            })
+            .catch(() => {});
+        }
+      }
+    } catch (_e) {}
   }
 
   /**
@@ -58,24 +81,72 @@ class AudioManager {
     }
 
     if (this.ctx.state === 'suspended') {
-      await this.ctx.resume();
+      try {
+        await this.ctx.resume();
+      } catch (_e) {}
     }
 
     this.isUnlocked = true;
+
+    // Iniciar o reanudar reproducción de música de fondo continua
+    if (this.customAudioUrl) {
+      if (!this.customAudioElement) {
+        this.initCustomAudio(this.customAudioUrl);
+      }
+      this.syncMusicVolume(false);
+      if (this.customAudioElement && !this.isMuted) {
+        this.customAudioElement.play().catch((err) => {
+          console.log('[Audio] Custom track play notice on unlock:', err);
+        });
+      }
+    }
+
     this.startScheduler();
     return true;
   }
 
   public isAudioUnlocked(): boolean {
-    return this.isUnlocked && !!this.ctx && this.ctx.state === 'running';
+    return this.isUnlocked && (!this.ctx || this.ctx.state === 'running');
+  }
+
+  /**
+   * Ajuste de volumen maestro (0.0 a 1.0)
+   */
+  public setMasterVolume(vol: number): void {
+    const clamped = Math.max(0, Math.min(1, vol));
+    this.masterVolume = clamped;
+    CONFIG.masterVolume = clamped;
+    if (this.masterGain && this.ctx) {
+      const now = this.ctx.currentTime;
+      this.masterGain.gain.cancelScheduledValues(now);
+      this.masterGain.gain.setValueAtTime(this.isMuted ? 0 : clamped, now);
+    }
+    this.syncMusicVolume(true);
+  }
+
+  public getMasterVolume(): number {
+    return this.masterVolume;
+  }
+
+  public getMasterVolumePercent(): number {
+    return Math.round(this.masterVolume * 100);
   }
 
   public toggleMute(): boolean {
     this.isMuted = !this.isMuted;
     if (this.masterGain && this.ctx) {
-      const target = this.isMuted ? 0 : CONFIG.masterVolume;
+      const target = this.isMuted ? 0 : this.masterVolume;
+      this.masterGain.gain.cancelScheduledValues(this.ctx.currentTime);
       this.masterGain.gain.setValueAtTime(this.masterGain.gain.value, this.ctx.currentTime);
       this.masterGain.gain.linearRampToValueAtTime(target, this.ctx.currentTime + 0.08);
+    }
+    this.syncMusicVolume(false);
+    if (this.customAudioElement) {
+      if (this.isMuted) {
+        this.customAudioElement.pause();
+      } else if (this.currentTrack === 'custom' && this.isUnlocked) {
+        this.customAudioElement.play().catch(() => {});
+      }
     }
     return this.isMuted;
   }
@@ -84,12 +155,133 @@ class AudioManager {
     return this.isMuted;
   }
 
+  /**
+   * Cálculo dinámico del volumen de la música de fondo:
+   * En peligro (>70% soga o tensión), baja automáticamente al 30%
+   */
+  public getEffectiveMusicVolume(): number {
+    if (this.isMuted || !CONFIG.musicEnabled) return 0;
+    let vol = this.masterVolume * 0.75;
+    if (this.isDangerDucked) {
+      vol *= 0.30; // Ducking en peligro: baja el volumen de la música de fondo para superponer tensión
+    } else if (this.isAnnouncementDucked) {
+      vol *= (1 - CONFIG.duckAmount);
+    }
+    return Math.max(0, Math.min(1, vol));
+  }
+
+  /**
+   * Sincronizar el volumen de la música en tiempo real
+   * Si la pista activa es 'custom', el bus 8-bit se silencia al 100% para que nunca suene nada por debajo
+   */
+  public syncMusicVolume(smooth: boolean = true): void {
+    const effVol = this.getEffectiveMusicVolume();
+    if (this.customAudioElement) {
+      this.customAudioElement.volume = effVol;
+    }
+    if (this.ctx && this.musicBus) {
+      const now = this.ctx.currentTime;
+      // Cuando hay una canción personalizada, el sintetizador 8-bit procedural se silencia a 0
+      const busVol = this.currentTrack === 'custom' ? 0 : effVol;
+      this.musicBus.gain.cancelScheduledValues(now);
+      this.musicBus.gain.setValueAtTime(this.musicBus.gain.value, now);
+      if (smooth) {
+        this.musicBus.gain.linearRampToValueAtTime(busVol, now + 0.15);
+      } else {
+        this.musicBus.gain.setValueAtTime(busVol, now);
+      }
+    }
+  }
+
   public setTrack(track: RetroTrackId): void {
     this.currentTrack = track;
+    if (track === 'custom') {
+      if (this.customAudioUrl) {
+        if (!this.customAudioElement) {
+          this.initCustomAudio(this.customAudioUrl);
+        }
+        if (this.isUnlocked && !this.isMuted && this.customAudioElement) {
+          this.customAudioElement.play().catch(() => {});
+        }
+      }
+    } else {
+      if (this.customAudioElement) {
+        this.customAudioElement.pause();
+      }
+    }
+    this.syncMusicVolume(false);
   }
 
   public getCurrentTrack(): RetroTrackId {
     return this.currentTrack;
+  }
+
+  /**
+   * Configurar URL o Data URL de la canción personalizada
+   * Guarda de forma segura sin exceder cuotas de storage
+   */
+  public setCustomAudioUrl(url: string | null): void {
+    this.customAudioUrl = url;
+    if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+      try {
+        if (url && !url.startsWith('data:') && !url.startsWith('blob:')) {
+          localStorage.setItem('custom_bgm_url', url);
+        } else if (!url) {
+          localStorage.removeItem('custom_bgm_url');
+        }
+      } catch (_e) {}
+    }
+
+    if (url) {
+      this.currentTrack = 'custom';
+      this.initCustomAudio(url);
+    } else {
+      if (this.customAudioElement) {
+        this.customAudioElement.pause();
+        this.customAudioElement = null;
+      }
+      this.currentTrack = 'battle';
+      this.syncMusicVolume(false);
+    }
+  }
+
+  public getCustomAudioUrl(): string | null {
+    return this.customAudioUrl;
+  }
+
+  private initCustomAudio(url: string): void {
+    try {
+      if (!this.customAudioElement) {
+        this.customAudioElement = new Audio();
+        this.customAudioElement.loop = true;
+        this.customAudioElement.preload = 'auto';
+        // Garantía de bucle infinito continuo
+        this.customAudioElement.addEventListener('ended', () => {
+          if (!this.isMuted && this.isUnlocked) {
+            this.customAudioElement?.play().catch(() => {});
+          }
+        });
+        this.customAudioElement.addEventListener('error', (e) => {
+          console.warn('[Audio] Custom audio error noticed:', e);
+        });
+      }
+
+      // Si ya está reproduciendo este mismo archivo, no reiniciar la reproducción
+      if (this.customAudioElement.src !== url) {
+        this.customAudioElement.src = url;
+        this.customAudioElement.load();
+      }
+
+      this.syncMusicVolume(false);
+
+      if (this.isUnlocked && !this.isMuted) {
+        this.customAudioElement.play().catch((err) => {
+          console.log('[Audio] Custom track play notice:', err);
+        });
+      }
+    } catch (err) {
+      console.warn('[Audio] initCustomAudio notice:', err);
+    }
   }
 
   private initBusses(): void {
@@ -106,11 +298,11 @@ class AudioManager {
 
     // Master Gain
     this.masterGain = this.ctx.createGain();
-    this.masterGain.gain.setValueAtTime(this.isMuted ? 0 : CONFIG.masterVolume, now);
+    this.masterGain.gain.setValueAtTime(this.isMuted ? 0 : this.masterVolume, now);
 
     // Dedicated Busses
     this.musicBus = this.ctx.createGain();
-    this.musicBus.gain.setValueAtTime(CONFIG.musicEnabled ? 0.75 : 0, now);
+    this.musicBus.gain.setValueAtTime(this.getEffectiveMusicVolume(), now);
 
     this.sfxBus = this.ctx.createGain();
     this.sfxBus.gain.setValueAtTime(CONFIG.sfxEnabled ? 1.0 : 0, now);
@@ -141,27 +333,19 @@ class AudioManager {
    * Applies temporary ducking on the music bus during announcements
    */
   public triggerDucking(): void {
-    if (!this.ctx || !this.musicBus || !CONFIG.musicEnabled) return;
-    const now = this.ctx.currentTime;
-    const currentVol = 0.75;
-    const duckedVol = currentVol * (1 - CONFIG.duckAmount);
-
-    this.musicBus.gain.cancelScheduledValues(now);
-    this.musicBus.gain.setValueAtTime(this.musicBus.gain.value, now);
-    this.musicBus.gain.linearRampToValueAtTime(duckedVol, now + 0.05);
+    if (!CONFIG.musicEnabled) return;
+    this.isAnnouncementDucked = true;
+    this.syncMusicVolume(true);
 
     if (this.duckTimer) window.clearTimeout(this.duckTimer);
     this.duckTimer = window.setTimeout(() => {
-      if (!this.ctx || !this.musicBus) return;
-      const t = this.ctx.currentTime;
-      this.musicBus.gain.cancelScheduledValues(t);
-      this.musicBus.gain.setValueAtTime(this.musicBus.gain.value, t);
-      this.musicBus.gain.linearRampToValueAtTime(currentVol, t + 0.3);
+      this.isAnnouncementDucked = false;
+      this.syncMusicVolume(true);
     }, CONFIG.duckTime);
   }
 
   /**
-   * Update the dynamic game state parameters that control procedural 8-bit music
+   * Update the dynamic game state parameters that control procedural 8-bit music and tension ducking
    */
   public setGameState(params: {
     phase: 'lobby' | 'intro' | 'round' | 'ended';
@@ -172,9 +356,19 @@ class AudioManager {
   }): void {
     this.currentPhase = params.phase;
     this.currentRopeV = params.ropeV;
-    this.isTension = params.isTension;
     this.isRedLight = params.isRedLight;
     this.isAmberAlert = params.isAmberAlert;
+
+    // Peligro activo: soga superando el 70% hacia cualquier lado (|ropeV| >= 70) o últimos segundos de tensión
+    const absV = Math.abs(params.ropeV);
+    const dangerActive = params.phase === 'round' && (absV >= 70 || params.isTension);
+
+    if (this.isDangerDucked !== dangerActive) {
+      this.isDangerDucked = dangerActive;
+      this.syncMusicVolume(true);
+    }
+
+    this.isTension = params.isTension || (params.phase === 'round' && absV >= 70);
   }
 
   /**
@@ -219,6 +413,37 @@ class AudioManager {
    */
   private scheduleBeat(time: number, stepIndex: number): void {
     if (!this.ctx || !CONFIG.musicEnabled) return;
+
+    // Si la pista activa es la canción personalizada, reproducirla en bucle continuo y superponer efectos de tensión
+    if (this.currentTrack === 'custom' && this.customAudioUrl) {
+      if (this.customAudioElement) {
+        if (this.isMuted || !this.isUnlocked || !CONFIG.musicEnabled) {
+          if (!this.customAudioElement.paused) this.customAudioElement.pause();
+        } else if (this.customAudioElement.paused && this.isUnlocked) {
+          this.customAudioElement.play().catch(() => {});
+        }
+      }
+
+      // Si hay peligro o tensión activa (|ropeV| >= 70 o tiempo crítico), SUPERPONER EFECTOS DE TENSIÓN
+      if (this.isDangerDucked && this.currentPhase === 'round') {
+        const absV = Math.abs(this.currentRopeV);
+        const step = stepIndex % 16;
+        // 1. Latido pesado de tensión en compases regulares
+        if (step % 4 === 0) {
+          this.synth8bitDangerHeartbeat(time, absV >= 85 ? 1.4 : 1.0);
+        }
+        // 2. Arpegios tensos de urgencia superpuestos
+        if (step % 4 === 2) {
+          const chord = absV >= 85 ? [587.33, 739.99, 880.0, 1174.66] : [440.0, 554.37, 659.25];
+          this.synth8bitDangerTensionRiser(time, chord, 0.18);
+        }
+        // 3. Alarma en peligro extremo (> 85%)
+        if (absV >= 85 && step % 2 === 1) {
+          this.synth8bitPulse(time, 987.77, 0.05, 0.16);
+        }
+      }
+      return;
+    }
 
     // During red light, play sparse retro warning beep
     if (this.isRedLight) {
@@ -387,6 +612,60 @@ class AudioManager {
   // ==========================================
   // PROCEDURAL 8-BIT CHIPTUNE SYNTHESIZERS
   // ==========================================
+
+  /**
+   * Pulso / Latido pesado de peligro cuando la soga supera el 70%
+   */
+  private synth8bitDangerHeartbeat(time: number, multiplier: number = 1.0): void {
+    if (!this.ctx || !this.sfxBus || !CONFIG.sfxEnabled) return;
+    try {
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(120, time);
+      osc.frequency.exponentialRampToValueAtTime(38, time + 0.16);
+
+      const vol = Math.min(0.5, 0.32 * multiplier);
+      gain.gain.setValueAtTime(vol, time);
+      gain.gain.exponentialRampToValueAtTime(0.001, time + 0.18);
+
+      osc.connect(gain);
+      gain.connect(this.sfxBus);
+
+      osc.start(time);
+      osc.stop(time + 0.18);
+    } catch (_e) {}
+  }
+
+  /**
+   * Arpegio rápido de tensión superpuesto en peligro
+   */
+  private synth8bitDangerTensionRiser(time: number, freqs: number[], volume: number): void {
+    if (!this.ctx || !this.sfxBus || freqs.length === 0 || !CONFIG.sfxEnabled) return;
+    try {
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+
+      osc.type = 'square';
+      const arpSpeed = 0.025;
+      const totalDuration = arpSpeed * freqs.length * 2;
+
+      for (let i = 0; i < freqs.length * 2; i++) {
+        const f = freqs[i % freqs.length];
+        osc.frequency.setValueAtTime(f, time + i * arpSpeed);
+      }
+
+      gain.gain.setValueAtTime(volume, time);
+      gain.gain.exponentialRampToValueAtTime(0.001, time + totalDuration);
+
+      osc.connect(gain);
+      gain.connect(this.sfxBus);
+
+      osc.start(time);
+      osc.stop(time + totalDuration);
+    } catch (_e) {}
+  }
 
   /**
    * 8-Bit Pulse / Square Wave Channel (NES Pulse 1 / 2)
@@ -729,6 +1008,51 @@ class AudioManager {
       osc.start(now + i * 0.07);
       osc.stop(now + i * 0.07 + 0.2);
     });
+  }
+
+  /**
+   * Logro rápido desbloqueado en la ronda: Fanfarria de destello y confeti triunfal
+   */
+  public playAchievementUnlock(): void {
+    if (!this.ctx || !CONFIG.sfxEnabled) return;
+    try {
+      const now = this.ctx.currentTime;
+      this.triggerDucking();
+
+      // Arpegio ascendente brillante con efecto destello arcade
+      const arpeggio = [523.25, 659.25, 783.99, 1046.5, 1318.51, 1567.98];
+      arpeggio.forEach((f, i) => {
+        const osc = this.ctx!.createOscillator();
+        const gain = this.ctx!.createGain();
+        osc.type = 'square';
+        osc.frequency.setValueAtTime(f, now + i * 0.05);
+
+        gain.gain.setValueAtTime(0.24, now + i * 0.05);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.05 + 0.35);
+
+        osc.connect(gain);
+        gain.connect(this.sfxBus!);
+        osc.start(now + i * 0.05);
+        osc.stop(now + i * 0.05 + 0.35);
+      });
+
+      // Acorde final con brillo / shimmer
+      [1046.5, 1318.51, 1567.98, 2093.0].forEach((f) => {
+        const osc = this.ctx!.createOscillator();
+        const gain = this.ctx!.createGain();
+        osc.type = 'triangle';
+        const start = now + 0.32;
+        osc.frequency.setValueAtTime(f, start);
+
+        gain.gain.setValueAtTime(0.2, start);
+        gain.gain.exponentialRampToValueAtTime(0.001, start + 0.6);
+
+        osc.connect(gain);
+        gain.connect(this.sfxBus!);
+        osc.start(start);
+        osc.stop(start + 0.6);
+      });
+    } catch (_e) {}
   }
 
   /**

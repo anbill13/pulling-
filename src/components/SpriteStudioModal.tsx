@@ -1458,12 +1458,31 @@ const CalibrationTab: React.FC<CalibrationTabProps> = ({ assets, updateAssets, o
         </div>
 
         {/* Líneas de meta independientes para Rojo y Azul */}
-        <div className="space-y-2 bg-[#181928] p-3.5 rounded-xl border border-white/10">
-          <span className="text-xs text-white font-bold flex items-center gap-1.5">
-            <span>🏁</span> Líneas de Meta Independientes (Límite de Victoria)
-          </span>
+        <div className="space-y-3 bg-[#181928] p-3.5 rounded-xl border border-white/10">
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-white font-bold flex items-center gap-1.5">
+              <span>🏁</span> Líneas de Meta Independientes (Límite de Victoria)
+            </span>
+            <button
+              type="button"
+              onClick={() =>
+                updateAssets((prev) => ({
+                  ...prev,
+                  showMetaLines: prev.showMetaLines === false ? true : false,
+                }))
+              }
+              className={`px-2.5 py-1 text-xs rounded-lg font-bold border transition-all cursor-pointer flex items-center gap-1.5 ${
+                (assets.showMetaLines ?? true)
+                  ? 'bg-amber-600/30 text-amber-300 border-amber-500/50 hover:bg-amber-600/40'
+                  : 'bg-neutral-800 text-neutral-400 border-white/10 hover:text-white'
+              }`}
+            >
+              <span>{(assets.showMetaLines ?? true) ? '👁️' : '🚫'}</span>
+              <span>{(assets.showMetaLines ?? true) ? 'Metas Visibles' : 'Metas Ocultas'}</span>
+            </button>
+          </div>
           <p className="text-[11px] text-neutral-400">
-            Mueve cada línea de meta de forma individual para definir exactamente dónde se gana el juego.
+            Mueve cada línea de meta de forma individual para definir exactamente dónde se gana el juego, o usa el botón para ocultarlas por completo en la pantalla.
           </p>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
@@ -1512,6 +1531,80 @@ const CalibrationTab: React.FC<CalibrationTabProps> = ({ assets, updateAssets, o
                 Por defecto: 66% (más a la izquierda = meta más cerca del centro).
               </span>
             </div>
+          </div>
+        </div>
+
+        {/* Dificultad Competitiva y Puntos Requeridos */}
+        <div className="space-y-3 bg-[#181928] p-3.5 rounded-xl border border-amber-500/30">
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-white font-bold flex items-center gap-1.5">
+              <span>🔥</span> Dificultad & Puntos Competitivos (Mayor Esfuerzo)
+            </span>
+            <span className="text-[10px] px-2 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-700 font-mono">
+              {assets.difficultyMode === 'extreme' ? 'Titán (0.02x)' : assets.difficultyMode === 'normal' ? 'Estándar (0.10x)' : 'Competitivo (0.05x)'}
+            </span>
+          </div>
+          <p className="text-[11px] text-neutral-300">
+            Todo otorga menos puntos y empuje para que ambos equipos tengan que esforzarse al máximo para ganar cada centímetro de la soga.
+          </p>
+
+          <div className="grid grid-cols-3 gap-2 pt-1">
+            <button
+              type="button"
+              onClick={() =>
+                updateAssets((prev) => ({
+                  ...prev,
+                  difficultyMode: 'normal',
+                  pointScaleMultiplier: 0.10,
+                }))
+              }
+              className={`p-2.5 rounded-lg border text-center transition-all cursor-pointer ${
+                assets.difficultyMode === 'normal'
+                  ? 'bg-blue-600/30 border-blue-400 text-blue-200 shadow-md font-bold'
+                  : 'bg-black/30 border-white/10 text-neutral-400 hover:text-white'
+              }`}
+            >
+              <div className="text-xs">⚡ Estándar</div>
+              <div className="text-[10px] text-neutral-400 mt-0.5">0.10x (Moderado)</div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() =>
+                updateAssets((prev) => ({
+                  ...prev,
+                  difficultyMode: 'hard',
+                  pointScaleMultiplier: 0.05,
+                }))
+              }
+              className={`p-2.5 rounded-lg border text-center transition-all cursor-pointer ${
+                (assets.difficultyMode ?? 'hard') === 'hard'
+                  ? 'bg-amber-600/30 border-amber-400 text-amber-200 shadow-md font-bold'
+                  : 'bg-black/30 border-white/10 text-neutral-400 hover:text-white'
+              }`}
+            >
+              <div className="text-xs">🔥 Competitivo</div>
+              <div className="text-[10px] text-neutral-400 mt-0.5">0.05x (Recomendado)</div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() =>
+                updateAssets((prev) => ({
+                  ...prev,
+                  difficultyMode: 'extreme',
+                  pointScaleMultiplier: 0.02,
+                }))
+              }
+              className={`p-2.5 rounded-lg border text-center transition-all cursor-pointer ${
+                assets.difficultyMode === 'extreme'
+                  ? 'bg-red-600/30 border-red-400 text-red-200 shadow-md font-bold'
+                  : 'bg-black/30 border-white/10 text-neutral-400 hover:text-white'
+              }`}
+            >
+              <div className="text-xs">💀 Titán / Extremo</div>
+              <div className="text-[10px] text-neutral-400 mt-0.5">0.02x (Súper difícil)</div>
+            </button>
           </div>
         </div>
 

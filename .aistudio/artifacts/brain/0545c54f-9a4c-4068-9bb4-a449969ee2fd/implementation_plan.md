@@ -1,124 +1,78 @@
-# Estudio de Sprites, Activos y Manejador de Fotogramas para Tira y Afloja
+# Sistema de Música de Fondo Continua y Efectos de Tensión Automáticos
 
-Plan arquitectónico para crear el **Estudio de Sprites y Activos Visuales**: subida y calibración de imagen de referencia con overlay y opacidad en la arena, carga modular de elementos estáticos (fondo, pilares/bases, soga, bandana), y un **Manejador de Fotogramas (Sprite Animator)** con soporte dual para animación en loop continuo durante toda la partida.
+Plan de implementación para garantizar que la canción de fondo subida por el usuario suene ininterrumpidamente en bucle continuo durante toda la transmisión, eliminar los selectores manuales de pistas del panel de pruebas, y automatizar las alertas sonoras y efectos de tensión según el desarrollo dinámico del juego.
 
-## Decisiones Confirmadas del Usuario
+---
+
+### Decisiones Críticas Confirmadas
 
 > [!IMPORTANT]
-> - **Método de carga de sprites**: Soporte dual confirmado — Permite subir tanto múltiples imágenes individuales (`00.png`, `01.png`, etc.) como un archivo único de Sprite Sheet continuo con selector de corte de fotogramas (filas/columnas).
-> - **Visualización de imagen de referencia**: Overlay semitransparente montado directamente sobre la arena de juego, equipado con control deslizante de opacidad (0% a 100%) y botón de alternancia rápida (ojo).
-> - **Ubicación en la interfaz**: Modal completo y dedicado de "Estudio de Sprites y Activos" con pestañas modulares y previsualización en vivo.
+> Decisiones confirmadas con el usuario durante la fase interactiva:
+> - **Música Continua en Bucle**: La canción de fondo (subida por el usuario) sonará de forma ininterrumpida e infinita durante toda la transmisión (tanto en sala de espera como durante las rondas y transiciones).
+> - **Mezcla Dinámica con Peligro**: Al entrar en momentos críticos (soga superando el 70% o tiempo de tensión final), el volumen de la música de fondo se reducirá automáticamente (ducking al 40%) mientras se superponen los efectos sonoros y la tensión musical de advertencia.
+> - **Panel Simplificado**: Se eliminan todos los botones manuales de selección de pistas (Batalla, Arcade, Boss). El panel mantendrá exclusivamente el botón para subir la canción de fondo, el control de volumen general y el indicador de reproducción activa.
 
 ---
 
-## 1. Visión General y Valor del Producto
+### 1. Visión General & Causa Raíz Identificada
 
-- **Propósito**: Permitir que el creador de contenido o streamer de TikTok Live Studio suba sus propios diseños artísticos con total fidelidad, compare la composición del juego contra su diseño de referencia visual mediante un overlay con opacidad, y gestione con precisión las animaciones en bucle de los personajes (Chica y Chico) sincronizadas con la soga y las capas del juego.
-- **Público Objetivo**: Streamers, diseñadores de overlays y operadores del juego interactivo de TikTok.
-- **Valor Clave**: Cero dependencia de código para cambiar los gráficos; previsualización instantánea y animación fluida en loop a 18–24 FPS sin bloqueos.
-
----
-
-## 2. Experiencia de Usuario y Diseño Visual
-
-### Flujo de Usuario Principal
-1. **Acceso al Estudio**: El usuario hace clic en el botón `🎨 Estudio de Sprites` en la barra superior de la arena.
-2. **Pestaña 1: Imagen de Referencia & Overlay**:
-   - Subida de boceto o arte final de referencia (`PNG`/`JPG`).
-   - Deslizador de opacidad (0% a 100%) y conmutador `Ver Referencia en la Arena`.
-   - Cuando está activo, la arena muestra el overlay superpuesto para comparar píxel a píxel la alineación de manos, soga y plataformas.
-3. **Pestaña 2: Elementos Estáticos**:
-   - Tarjetas modulares de subida para:
-     - **Fondo** (escenario/cielo/abismo)
-     - **Pilares / Bases** (capa de plataformas rocosas donde se apoyan los pies)
-     - **Soga** (textura horizontal continua)
-     - **Bandana** (nudo indicador de equilibrio)
-4. **Pestañas 3 y 4: Manejador de Sprites (Chica / Chico)**:
-   - **Modo A (Archivos múltiples)**: Seleccionar o arrastrar todos los archivos PNG de la carpeta (`00.png` a `29.png`).
-   - **Modo B (Sprite Sheet único)**: Subir imagen combinada y configurar número de cuadros horizontales/verticales.
-   - **Controles de animación**:
-     - Reproducir / Pausar / Fotograma anterior / Fotograma siguiente.
-     - Selector de velocidad (FPS de reposo: 10–18, FPS de tensión: 20–28).
-     - Línea de tiempo visual con miniaturas de los fotogramas y depurador paso a paso.
-     - Indicador visual de altura de manos para garantizar que cubran la soga.
-5. **Guardado y Persistencia**:
-   - Guardado automático en almacenamiento local del navegador (`localStorage` / `IndexedDB` para imágenes pesadas).
-   - Botón de restablecimiento para volver a los activos oficiales en cualquier momento.
-
-```
-┌────────────────────────────────────────────────────────────────────────┐
-│ ESTUDIO DE SPRITES Y ACTIVOS VISUALES                     [X Cerrar]   │
-├────────────────────────────────────────────────────────────────────────┤
-│ [🖼️ Referencia] [🧩 Estáticos] [👧 Chica Rojo] [👦 Chico Azul] [📏 Ajustes] │
-├────────────────────────────────────────────────────────────────────────┤
-│ ┌──────────────────────────────────────┐  ┌──────────────────────────┐ │
-│ │ PREVISUALIZADOR DE FOTOGRAMAS        │  │ CONTROLES DE CARGA       │ │
-│ │                                      │  │ (•) Múltiples PNGs       │ │
-│ │        [ Sprite Frame Preview ]      │  │ ( ) Sprite Sheet Strip   │ │
-│ │                                      │  │                          │ │
-│ │ ◀  ▶  [ ▶ Play ]  FPS: [ 18 ]       │  │ [ 📁 Seleccionar Carpeta] │ │
-│ │ Fotograma: 14 / 30                   │  │ 30 cuadros cargados      │ │
-│ └──────────────────────────────────────┘  └──────────────────────────┘ │
-│                                                                        │
-│ Tira de fotogramas: [00][01][02][03][04][05][06][07][08][09]...       │
-└────────────────────────────────────────────────────────────────────────┘
-```
+- **Problema Detectado en la Subida**: Anteriormente, el elemento de audio se enrutaba a través de un nodo `createMediaElementSource` sobre un `AudioContext` que podía estar suspendido por políticas de autoplay del navegador o fallar por restricciones de origen en data URLs.
+- **Solución Robusta**:
+  1. Implementar un reproductor de audio dedicado (`HTMLAudioElement`) desacoplado de bloqueos de contexto, con desbloqueo universal en el primer clic o toque de pantalla.
+  2. Almacenar el archivo de audio tanto en memoria/Object URL como en IndexedDB y el backend `/api/upload-bgm`, asegurando persistencia permanente.
+  3. Automatizar la reactividad sonora: el juego controla los momentos dramáticos sin requerir intervención manual del streamer.
 
 ---
 
-## 3. Decisiones Técnicas y Arquitectura
+### 2. Experiencia de Usuario & Comportamiento Sonoro
 
 ```
-                     ┌───────────────────────────────┐
-                     │         App Principal         │
-                     └───────────────┬───────────────┘
-                                     │
-             ┌───────────────────────┴───────────────────────┐
-             ▼                                               ▼
-┌─────────────────────────────┐             ┌────────────────────────────────┐
-│   PixelScene (Arena Juego)  │             │   SpriteStudioModal (Estudio)   │
-├─────────────────────────────┤             ├────────────────────────────────┤
-│ Capa 1: Fondo               │             │ Pestaña Referencia & Overlay   │
-│ Capa 1.5: Pilares / Bases   │             │ Pestaña Elementos Estáticos    │
-│ Capa 2: Soga                │             │ Pestaña Chica (Sprite Manager) │
-│ Capa 3: Bandana             │             │ Pestaña Chico (Sprite Manager) │
-│ Capa 4: Chica & Chico Sprites│            │ Calibración de Altura & Escala │
-│ Capa 5: Overlay Referencia  │             └───────────────┬────────────────┘
-└─────────────▲───────────────┘                             │
-              │                                             │
-              └──────────── Actualiza Estado de Activos ────┘
+┌────────────────────────────────────────────────────────┐
+│                   MÚSICA DE FONDO                      │
+│   Canción Oficial subida ("Un dos tres jalamos ya...") │
+│   ═════════════════ LOOP CONTINUO ═════════════════════│
+└──────────────────────────┬─────────────────────────────┘
+                           │
+                 ¿Sucede un evento crítico?
+          (Peligro |ropeV| >= 70% o Tensión <= 20s)
+                           │
+              ┌────────────┴────────────┐
+              │ SÍ                      │ NO
+              ▼                         ▼
+   ┌───────────────────────┐   ┌──────────────────────┐
+   │ Ducking: Volumen -50% │   │ Volumen normal (100%)│
+   │ Superponer alertas y  │   │ Música limpia en     │
+   │ efectos de tensión    │   │ primer plano         │
+   └───────────────────────┘   └──────────────────────┘
 ```
 
-### 1. Gestión de Capas (Z-Index Actualizado)
-- **Capa 1 (`z-index: 1`)**: Fondo del escenario.
-- **Capa 1.5 (`z-index: 2`)**: Pilares / Bases estáticas donde se paran los personajes.
-- **Capa 2 (`z-index: 3`)**: Soga móvil (`transition: left 0.3s ease-out`).
-- **Capa 3 (`z-index: 4`)**: Bandana roja en el centro de la soga.
-- **Capa 4 (`z-index: 5`)**: Personajes animados con manos que tapan la soga.
-- **Capa 5 (`z-index: 6`)**: Overlay de Imagen de Referencia (con opacidad regulable del 0% al 100%, con `pointer-events-none`).
-
-### 2. Motor de Animación de Sprites en Loop
-- Utilizará un bucle `requestAnimationFrame` con marcas de tiempo en milisegundos (`performance.now()`) para garantizar que la animación mantenga su velocidad exacta (FPS configurable) sin degradación cuando el navegador o la transmisión de TikTok tengan alta carga.
-- Aceleración dinámica de FPS cuando la soga entre en estado de tensión o tirón rápido.
+#### Eventos Dinámicos que Modifican el Audio Automáticamente
+- **Juego Normal (0% a 69% soga)**: La canción suena a volumen completo en bucle continuo.
+- **Zona de Peligro (≥ 70% soga)**: La canción se atenúa automáticamente al 45% y se superponen latidos de tensión y alertas sonoras de advertencia.
+- **Luz Roja**: Atenuación de fondo y pitidos intermitentes de peligro.
+- **Victoria / Fin de Ronda**: La música de fondo baja suavemente mientras suena la fanfarria de victoria y vuelve a su volumen normal al continuar.
 
 ---
 
-## 4. Fases de Ejecución
+### 3. Ajustes en el Panel de Pruebas
 
-1. **Estructura de Datos & Almacenamiento**:
-   - Ampliar `CustomGameAssets` en `types.ts` con `referenceImageUrl`, `referenceOpacity`, `referenceVisible`, `pilaresUrl`, y las listas de cuadros `chicaFrames?: string[]` y `chicoFrames?: string[]` con sus metadatos de animación.
-   - Proveer persistencia robusta para blobs/base64 de las imágenes cargadas.
+- **Eliminación**: Retirar botones manuales "Batalla", "Arcade" y "Boss".
+- **Nueva Sección Compacta de Audio**:
+  - Botón principal: `📁 Cargar Canción de Fondo (MP3 / WAV)`
+  - Control deslizante / barra de Volumen General.
+  - Indicador de estado: `● Reproduciendo Canción Oficial en Bucle`.
+  - Botón discreto para cambiar o restaurar audio.
 
-2. **Desarrollo del `SpriteStudioModal`**:
-   - Crear el modal modular con las 5 secciones especializadas.
-   - Lector de archivos por lotes (procesador de carpetas y múltiples archivos PNG ordenados por nombre numérico `00`, `01`, etc.).
-   - Slicer / cortador de Sprite Sheets en Canvas para dividir tiras continuas en cuadros individuales automáticamente.
-   - Depurador visual de fotogramas con barra deslizante y reproducción interactiva.
+---
 
-3. **Integración en `PixelScene.tsx`**:
-   - Agregar la capa de **Pilares / Bases** fija debajo de los pies de los personajes.
-   - Agregar la capa de **Overlay de Referencia** con control de opacidad en vivo y alternador rápido de visibilidad.
-   - Conectar los fotogramas dinámicos de Chica y Chico al motor de animación de la arena.
+### 4. Arquitectura Técnica & Plan de Archivos
 
-4. **Verificación y Pruebas**:
-   - Probar la carga de imágenes de prueba, la animación en bucle a 18 FPS, el deslizador de opacidad de referencia y verificar con `lint_applet` y `compile_applet`.
+1. **`src/audio.ts`**:
+   - Crear un reproductor nativo robusto para la canción de fondo (`bgmAudio`) con `loop = true`, `preload = 'auto'` y eventos de desbloqueo garantizados.
+   - Conectar el ducking automático a los parámetros del juego (`ropeV >= 70`, `isTension`, alertas).
+   - Eliminar los modos manuales y automatizar las capas sonoras basadas en el estado del juego.
+2. **`src/components/StreamerPanel.tsx`**:
+   - Simplificar la tarjeta de audio eliminando los selectores de pistas manuales.
+   - Dejar únicamente el cargador de archivo de audio y el slider de volumen maestro.
+3. **`src/App.tsx`**:
+   - Asegurar que al seleccionar el archivo de audio se inicie inmediatamente la reproducción y se guarde en almacenamiento.

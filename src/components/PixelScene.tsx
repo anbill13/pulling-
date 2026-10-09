@@ -18,6 +18,7 @@ interface PixelSceneProps {
   onManualPull?: (team: Team) => void;
   onOpenAssetManager?: () => void;
   onToggleReferenceOverlay?: () => void;
+  onToggleMetaLines?: () => void;
 }
 
 // 30 cropped frames for Chica, 28 cropped frames for Chico
@@ -50,6 +51,7 @@ export const PixelScene: React.FC<PixelSceneProps> = memo(({
   onManualPull,
   onOpenAssetManager,
   onToggleReferenceOverlay,
+  onToggleMetaLines,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
@@ -145,9 +147,10 @@ export const PixelScene: React.FC<PixelSceneProps> = memo(({
   // Posición de los personajes (alejar o acercar a la meta)
   const chicaPos = customAssets?.chicaPositionPercent ?? 8;
   const chicoPos = customAssets?.chicoPositionPercent ?? 8;
-  // Líneas de meta independientes para Rojo y Azul
+  // Líneas de meta independientes para Rojo y Azul (con opción de ocultarlas)
   const metaRojoPercent = customAssets?.metaRojoPercent ?? 34;
   const metaAzulPercent = customAssets?.metaAzulPercent ?? 66;
+  const showMetaLines = customAssets?.showMetaLines ?? true;
 
   const bandanaScale = (customAssets?.bandanaScalePercent ?? 85) / 100;
   const ropeThicknessPx = customAssets?.ropeThicknessPx ?? 14;
@@ -161,9 +164,47 @@ export const PixelScene: React.FC<PixelSceneProps> = memo(({
     : `calc(${effectiveRopeTop} + ${bandanaOffsetY}px)`;
 
   // Horizontal displacement (-100 to +100)
-  // Max slide percentage ~ 16% of container width
-  const maxSlidePercent = 16;
-  const slidePercent = (ropeV / 100) * maxSlidePercent;
+  // Para que al ganar (+100 o -100), la bandana llegue exactamente a la línea de meta:
+  const slidePercent = ropeV >= 0
+    ? (ropeV / 100) * (50 - metaRojoPercent)
+    : (ropeV / 100) * (metaAzulPercent - 50);
+
+  // Estados de peligro y tensión para animación de vibración (shake al superar el 70% hacia cualquier lado)
+  const absRopeV = Math.abs(ropeV);
+  const isExtremeDanger = absRopeV >= 85;
+  const isMediumDanger = absRopeV >= 70;
+
+  // Animación de vibración CSS para la soga y la bandana
+  const ropeShakeClass = isExtremeDanger
+    ? 'animate-shake-danger-heavy'
+    : isMediumDanger
+    ? 'animate-shake-danger-medium'
+    : '';
+
+  // Vibración CSS para Chica (Team Rojo) - Esfuerzo y temblor al borde de peligro (>= 70%)
+  const chicaShakeClass = ropeV <= -85
+    ? 'animate-character-struggle-extreme'
+    : ropeV <= -70 || ropeV >= 85
+    ? 'animate-character-struggle'
+    : '';
+
+  // Vibración CSS para Chico (Team Azul) - Esfuerzo y temblor al borde de peligro (>= 70%)
+  const chicoShakeClass = ropeV >= 85
+    ? 'animate-character-struggle-extreme'
+    : ropeV >= 70 || ropeV <= -85
+    ? 'animate-character-struggle'
+    : '';
+
+  // Resplandor de peligro y tensión sobre la soga
+  const ropeDangerGlow = isExtremeDanger
+    ? ropeV > 0
+      ? 'drop-shadow-[0_0_16px_rgba(255,59,59,0.95)]'
+      : 'drop-shadow-[0_0_16px_rgba(61,165,255,0.95)]'
+    : isMediumDanger
+    ? ropeV > 0
+      ? 'drop-shadow-[0_0_9px_rgba(255,59,59,0.7)]'
+      : 'drop-shadow-[0_0_9px_rgba(61,165,255,0.7)]'
+    : 'drop-shadow-[0_2px_4px_rgba(0,0,0,0.6)]';
 
   // Platform collapse animations
   const rojoCollapsed = phase === 'ended' && losingTeam === 'rojo';
@@ -190,45 +231,12 @@ export const PixelScene: React.FC<PixelSceneProps> = memo(({
       }`}
     >
       {/* ------------------------------------------------------------- */}
-      {/* BOTONES DE CONTROL SUPERIOR (ESTUDIO DE SPRITES & REFERENCIA) */}
+      {/* BOTÓN PANTALLA COMPLETA (Discreto en esquina para el streamer) */}
       {/* ------------------------------------------------------------- */}
-      <div className="absolute top-3 right-3 z-30 flex items-center gap-1.5 pointer-events-auto">
-        {/* Conmutador rápido de Overlay de Referencia si hay imagen subida */}
-        {hasReference && onToggleReferenceOverlay && (
-          <button
-            onClick={onToggleReferenceOverlay}
-            className={`px-2.5 py-1 text-[11px] font-bold rounded-lg border backdrop-blur-md transition-all shadow-lg flex items-center gap-1.5 cursor-pointer font-pixel ${
-              isReferenceVisible
-                ? 'bg-purple-600 hover:bg-purple-500 text-white border-purple-400'
-                : 'bg-black/75 hover:bg-black/90 text-purple-300 border-purple-500/30'
-            }`}
-            title="Alternar visibilidad del overlay de imagen de referencia"
-          >
-            <span>{isReferenceVisible ? '👁️' : '👁️‍🗨️'}</span>
-            <span className="hidden sm:inline">Referencia</span>
-            <span className="text-[9px] font-mono opacity-80">
-              {isReferenceVisible ? `${Math.round(referenceOpacity * 100)}%` : 'OFF'}
-            </span>
-          </button>
-        )}
-
-        {onOpenAssetManager && (
-          <button
-            onClick={onOpenAssetManager}
-            className="px-2.5 py-1 bg-gradient-to-r from-purple-600 to-red-600 hover:from-purple-500 hover:to-red-500 text-white text-[11px] font-bold rounded-lg border border-white/20 backdrop-blur-md transition-all shadow-lg flex items-center gap-1.5 cursor-pointer font-pixel"
-            title="Abrir Estudio de Sprites, Activos e Imagen de Referencia"
-          >
-            <span>🎨</span>
-            <span>Estudio Sprites</span>
-            {activeChicaFrames || activeChicoFrames ? (
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-300 animate-ping" />
-            ) : null}
-          </button>
-        )}
-
+      <div className="absolute top-3 right-3 z-30 pointer-events-auto opacity-70 hover:opacity-100 transition-opacity">
         <button
           onClick={toggleFullscreen}
-          className="px-2.5 py-1 bg-black/80 hover:bg-black/95 text-white/90 hover:text-white text-[11px] font-bold rounded-lg border border-white/20 backdrop-blur-md transition-all shadow-lg flex items-center gap-1 cursor-pointer"
+          className="px-2.5 py-1 bg-black/60 hover:bg-black/90 text-white/80 hover:text-white text-[10px] font-bold rounded-lg border border-white/10 backdrop-blur-md transition-all shadow flex items-center gap-1 cursor-pointer"
           title={isFullscreen ? 'Salir de pantalla completa' : 'Pantalla Completa'}
         >
           <span>{isFullscreen ? '🗗' : '⛶'}</span>
@@ -305,33 +313,58 @@ export const PixelScene: React.FC<PixelSceneProps> = memo(({
           </span>
         </div>
 
-        {/* Línea de Límite de Victoria Team Rojo (Independiente) */}
-        <div
-          className="absolute pointer-events-none z-10 border-l-2 border-dashed border-red-500/80 transition-all duration-200"
-          style={{
-            left: `${metaRojoPercent}%`,
-            top: `calc(${effectiveRopeTop} - 16%)`,
-            height: '32%',
-          }}
-        >
-          <span className="absolute -top-4 -translate-x-1/2 text-[7px] font-pixel text-red-400 bg-black/85 px-1.5 py-0.5 rounded border border-red-500/50 whitespace-nowrap shadow">
-            🏁 META ROJO ({metaRojoPercent}%)
-          </span>
-        </div>
+        {/* Líneas de Límite de Victoria Team Rojo y Azul (Ocultables según preferencia del streamer) */}
+        {showMetaLines && (
+          <>
+            {/* Línea de Límite de Victoria Team Rojo (Independiente) */}
+            <div
+              className={`absolute pointer-events-none z-10 border-l-2 border-dashed transition-all duration-200 ${
+                ropeV >= 90
+                  ? 'border-red-400 shadow-[0_0_15px_rgba(255,59,59,0.9)] animate-pulse'
+                  : 'border-red-500/80'
+              }`}
+              style={{
+                left: `${metaRojoPercent}%`,
+                top: `calc(${effectiveRopeTop} - 16%)`,
+                height: '32%',
+              }}
+            >
+              <span
+                className={`absolute -top-4 -translate-x-1/2 text-[7px] font-pixel px-1.5 py-0.5 rounded border whitespace-nowrap shadow transition-all ${
+                  ropeV >= 95
+                    ? 'bg-red-600 text-white border-white animate-bounce shadow-[0_0_10px_rgba(255,59,59,1)]'
+                    : 'text-red-400 bg-black/85 border-red-500/50'
+                }`}
+              >
+                🏁 META ROJO ({metaRojoPercent}%)
+              </span>
+            </div>
 
-        {/* Línea de Límite de Victoria Team Azul (Independiente) */}
-        <div
-          className="absolute pointer-events-none z-10 border-l-2 border-dashed border-blue-500/80 transition-all duration-200"
-          style={{
-            left: `${metaAzulPercent}%`,
-            top: `calc(${effectiveRopeTop} - 16%)`,
-            height: '32%',
-          }}
-        >
-          <span className="absolute -top-4 -translate-x-1/2 text-[7px] font-pixel text-blue-400 bg-black/85 px-1.5 py-0.5 rounded border border-blue-500/50 whitespace-nowrap shadow">
-            ({metaAzulPercent}%) META AZUL 🏁
-          </span>
-        </div>
+            {/* Línea de Límite de Victoria Team Azul (Independiente) */}
+            <div
+              className={`absolute pointer-events-none z-10 border-l-2 border-dashed transition-all duration-200 ${
+                ropeV <= -90
+                  ? 'border-blue-400 shadow-[0_0_15px_rgba(61,165,255,0.9)] animate-pulse'
+                  : 'border-blue-500/80'
+              }`}
+              style={{
+                left: `${metaAzulPercent}%`,
+                top: `calc(${effectiveRopeTop} - 16%)`,
+                height: '32%',
+              }}
+            >
+              <span
+                className={`absolute -top-4 -translate-x-1/2 text-[7px] font-pixel px-1.5 py-0.5 rounded border whitespace-nowrap shadow transition-all ${
+                  ropeV <= -95
+                    ? 'bg-blue-600 text-white border-white animate-bounce shadow-[0_0_10px_rgba(61,165,255,1)]'
+                    : 'text-blue-400 bg-black/85 border-blue-500/50'
+                }`}
+              >
+                ({metaAzulPercent}%) META AZUL 🏁
+              </span>
+            </div>
+          </>
+        )}
 
         {/* Caja Fuerte suspendida sobre el centro */}
         {safeEvent && safeEvent.active && (
@@ -366,7 +399,7 @@ export const PixelScene: React.FC<PixelSceneProps> = memo(({
       {/* ------------------------------------------------------------- */}
       {/* CAPA 2 (SOGA): z-index: 3                                     */}
       {/* Se traslada verticalmente con effectiveRopeTop y horizontal   */}
-      {/* con transition: left 0.3s ease-out                            */}
+      {/* con transition: left 0.3s ease-out. Incluye vibración shake   */}
       {/* ------------------------------------------------------------- */}
       <div
         className="absolute z-[3] pointer-events-none select-none flex items-center justify-center overflow-visible"
@@ -379,17 +412,19 @@ export const PixelScene: React.FC<PixelSceneProps> = memo(({
           height: `${ropeThicknessPx}px`,
         }}
       >
-        <img
-          src={sogaSrc}
-          alt="Soga"
-          className="w-full h-full object-cover filter drop-shadow-[0_2px_4px_rgba(0,0,0,0.6)]"
-          referrerPolicy="no-referrer"
-        />
+        <div className={`w-full h-full ${ropeShakeClass}`}>
+          <img
+            src={sogaSrc}
+            alt="Soga"
+            className={`w-full h-full object-cover filter transition-all duration-200 ${ropeDangerGlow}`}
+            referrerPolicy="no-referrer"
+          />
+        </div>
       </div>
 
       {/* ------------------------------------------------------------- */}
       {/* CAPA 3 (BANDANA): z-index: 4                                  */}
-      {/* Nudo rojo atado al centro de la soga (subir y bajar)          */}
+      {/* Nudo rojo atado al centro de la soga con vibración de tensión  */}
       {/* ------------------------------------------------------------- */}
       <div
         className="absolute z-[4] pointer-events-none select-none flex items-center justify-center"
@@ -402,12 +437,18 @@ export const PixelScene: React.FC<PixelSceneProps> = memo(({
           height: `${Math.round(32 * bandanaScale)}px`,
         }}
       >
-        <img
-          src={bandanaSrc}
-          alt="Bandana"
-          className="w-full h-full object-contain filter drop-shadow-[0_3px_5px_rgba(0,0,0,0.7)]"
-          referrerPolicy="no-referrer"
-        />
+        <div className={`w-full h-full flex items-center justify-center ${ropeShakeClass}`}>
+          <img
+            src={bandanaSrc}
+            alt="Bandana"
+            className={`w-full h-full object-contain filter transition-all duration-200 ${
+              isExtremeDanger
+                ? 'drop-shadow-[0_0_8px_rgba(255,255,255,0.9)] animate-pulse'
+                : 'drop-shadow-[0_3px_5px_rgba(0,0,0,0.7)]'
+            }`}
+            referrerPolicy="no-referrer"
+          />
+        </div>
       </div>
 
       {/* ------------------------------------------------------------- */}
@@ -439,17 +480,28 @@ export const PixelScene: React.FC<PixelSceneProps> = memo(({
             </div>
           )}
 
-          {/* RENDER CHICA (Fotogramas en loop infinito) */}
-          <img
-            src={
-              activeChicaFrames
-                ? activeChicaFrames[chicaFrame % activeChicaFrames.length]
-                : CHICA_FRAMES[chicaFrame % CHICA_FRAME_COUNT]
-            }
-            alt="Chica Team Rojo"
-            className="w-auto h-[180px] sm:h-[220px] md:h-[250px] max-w-[210px] sm:max-w-[260px] object-contain drop-shadow-[0_6px_16px_rgba(0,0,0,0.9)]"
-            referrerPolicy="no-referrer"
-          />
+          {/* RENDER CHICA (Fotogramas en loop infinito con vibración de esfuerzo/peligro) */}
+          <div className={`relative ${chicaShakeClass}`}>
+            {ropeV <= -70 && (
+              <div className="absolute -top-4 -right-1 text-sm animate-bounce pointer-events-none z-20 select-none">
+                💦
+              </div>
+            )}
+            <img
+              src={
+                activeChicaFrames
+                  ? activeChicaFrames[chicaFrame % activeChicaFrames.length]
+                  : CHICA_FRAMES[chicaFrame % CHICA_FRAME_COUNT]
+              }
+              alt="Chica Team Rojo"
+              className={`w-auto h-[180px] sm:h-[220px] md:h-[250px] max-w-[210px] sm:max-w-[260px] object-contain transition-all ${
+                ropeV <= -75
+                  ? 'drop-shadow-[0_0_15px_rgba(255,59,59,0.95)]'
+                  : 'drop-shadow-[0_6px_16px_rgba(0,0,0,0.9)]'
+              }`}
+              referrerPolicy="no-referrer"
+            />
+          </div>
         </div>
 
         {/* CHICO (TEAM AZUL - FIJO A LA DERECHA) */}
@@ -475,17 +527,28 @@ export const PixelScene: React.FC<PixelSceneProps> = memo(({
             </div>
           )}
 
-          {/* RENDER CHICO (Fotogramas en loop infinito - Gran escala hacia la meta) */}
-          <img
-            src={
-              activeChicoFrames
-                ? activeChicoFrames[chicoFrame % activeChicoFrames.length]
-                : CHICO_FRAMES[chicoFrame % CHICO_FRAME_COUNT]
-            }
-            alt="Chico Pose Arrastre Team Azul"
-            className="w-auto h-[180px] sm:h-[220px] md:h-[250px] max-w-[210px] sm:max-w-[260px] object-contain drop-shadow-[0_6px_16px_rgba(0,0,0,0.9)]"
-            referrerPolicy="no-referrer"
-          />
+          {/* RENDER CHICO (Fotogramas en loop infinito con vibración de esfuerzo/peligro) */}
+          <div className={`relative ${chicoShakeClass}`}>
+            {ropeV >= 70 && (
+              <div className="absolute -top-4 -left-1 text-sm animate-bounce pointer-events-none z-20 select-none">
+                💦
+              </div>
+            )}
+            <img
+              src={
+                activeChicoFrames
+                  ? activeChicoFrames[chicoFrame % activeChicoFrames.length]
+                  : CHICO_FRAMES[chicoFrame % CHICO_FRAME_COUNT]
+              }
+              alt="Chico Pose Arrastre Team Azul"
+              className={`w-auto h-[180px] sm:h-[220px] md:h-[250px] max-w-[210px] sm:max-w-[260px] object-contain transition-all ${
+                ropeV >= 75
+                  ? 'drop-shadow-[0_0_15px_rgba(61,165,255,0.95)]'
+                  : 'drop-shadow-[0_6px_16px_rgba(0,0,0,0.9)]'
+              }`}
+              referrerPolicy="no-referrer"
+            />
+          </div>
         </div>
 
         {/* Feedback de tirón animado */}
@@ -498,7 +561,7 @@ export const PixelScene: React.FC<PixelSceneProps> = memo(({
               pullFeedback.team === 'rojo' ? 'bg-red-500' : 'bg-blue-500'
             }`}
           >
-            +3.5
+            +0.5
           </div>
         )}
       </div>

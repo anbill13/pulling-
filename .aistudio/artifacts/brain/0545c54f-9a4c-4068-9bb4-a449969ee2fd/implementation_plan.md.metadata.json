@@ -1,6 +1,6 @@
 {
-  "summary":  "Plan de implementación para el Estudio de Sprites, Activos y Manejador de Fotogramas: subida de imagen de referencia con overlay de opacidad sobre la arena, subida modular de elementos estáticos (fondo, pilares/bases, soga, bandana), y manejador de fotogramas con soporte dual (múltiples PNGs o Sprite Sheet continuo) con bucle infinito para Chica y Chico.",
-  "updatedAt":  "2026-10-09T03:15:20.660236848Z",
+  "summary":  "Plan de implementación para corregir la reproducción continua en bucle de la música de fondo subida por el usuario, eliminar los controles manuales de pistas en el panel dejando solo el cargador de audio y volumen general, y automatizar las capas y efectos de tensión sonora según el desarrollo del juego.",
+  "updatedAt":  "2026-10-09T20:19:46.476425841Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

@@ -48,7 +48,7 @@ export interface CollectiveGoal {
 
 export interface BigAnnouncement {
   id: string;
-  type: 'gift' | 'combo' | 'giftRain' | 'sync' | 'comeback' | 'firstGift' | 'goldenRound' | 'safeWinner';
+  type: 'gift' | 'combo' | 'giftRain' | 'sync' | 'comeback' | 'firstGift' | 'goldenRound' | 'safeWinner' | 'suddenDeath';
   title: string;
   subtitle: string;
   icon: string;
@@ -57,6 +57,28 @@ export interface BigAnnouncement {
   userName?: string;
   durationMs: number;
   createdAt: number;
+}
+
+export type RoundAchievementId =
+  | 'first_comment_rojo'
+  | 'first_comment_azul'
+  | 'likes_streak_10'
+  | 'likes_streak_25'
+  | 'first_rose'
+  | 'danger_save'
+  | 'gift_streak_5'
+  | 'epic_comeback';
+
+export interface RoundAchievement {
+  id: string;
+  achievementId: RoundAchievementId;
+  title: string;
+  description: string;
+  icon: string;
+  team: Team;
+  userName: string;
+  userFormatted?: string;
+  unlockedAt: number;
 }
 
 export interface MiniComboAlert {
@@ -127,9 +149,13 @@ export interface CustomGameAssets {
   semaphoreHeightPercent?: number; // default 32% (rango 5% a 90%)
   semaphoreLeftHeightPercent?: number; // opcional individual para semáforo izquierdo
   semaphoreRightHeightPercent?: number; // opcional individual para semáforo derecho
-  // Líneas de meta independientes
+  // Líneas de meta independientes y visibilidad
   metaRojoPercent?: number; // default 34% (rango 15% a 48%)
   metaAzulPercent?: number; // default 66% (rango 52% a 85%)
+  showMetaLines?: boolean; // default true (permite ocultar las líneas de metas para ambos equipos)
+  // Dificultad competitiva y escala de puntos
+  difficultyMode?: 'normal' | 'hard' | 'extreme'; // 'hard' reduce puntos y empuje para mayor esfuerzo
+  pointScaleMultiplier?: number; // Multiplicador de puntos y empujes (ej. 0.35 para modo competitivo)
   // Tamaño y forma de la cuerda (permite encoger o alargar la soga)
   ropeWidthPercent?: number; // default 160% (rango 20% a 200%, permite encogerla más)
   ropeThicknessPx?: number; // default 14px (grosor de 2px a 36px)
@@ -152,6 +178,8 @@ export interface CustomGameAssets {
   chicoFps?: number; // default 18
   useOfficialSheetChica?: boolean;
   useOfficialSheetChico?: boolean;
+  // Música de fondo personalizada (MP3 / WAV / OGG)
+  customBgmUrl?: string;
 }
 
 export interface StorageAdapter {

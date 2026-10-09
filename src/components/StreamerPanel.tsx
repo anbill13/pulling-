@@ -41,7 +41,21 @@ interface StreamerPanelProps {
   onUpdateTikTokUsername?: (newUsername: string) => Promise<void>;
   retroTrack?: RetroTrackId;
   onSelectRetroTrack?: (track: RetroTrackId) => void;
+  customBgmUrl?: string | null;
+  onUploadCustomBgm?: (file: File) => Promise<void>;
+  onClearCustomBgm?: () => void;
+  isMuted?: boolean;
+  onToggleSound?: () => void;
+  masterVolume?: number;
+  onChangeMasterVolume?: (volume: number) => void;
+  onTriggerTestAchievement?: () => void;
   onOpenAssetManager?: () => void;
+  showMetaLines?: boolean;
+  onToggleMetaLines?: () => void;
+  difficultyMode?: 'normal' | 'hard' | 'extreme';
+  onSelectDifficultyMode?: (mode: 'normal' | 'hard' | 'extreme') => void;
+  isReferenceVisible?: boolean;
+  onToggleReferenceOverlay?: () => void;
 }
 
 export const StreamerPanel: React.FC<StreamerPanelProps> = ({
@@ -74,12 +88,42 @@ export const StreamerPanel: React.FC<StreamerPanelProps> = ({
   onUpdateTikTokUsername,
   retroTrack = 'battle',
   onSelectRetroTrack,
+  customBgmUrl = null,
+  onUploadCustomBgm,
+  onClearCustomBgm,
+  isMuted = false,
+  onToggleSound,
+  masterVolume = 0.6,
+  onChangeMasterVolume,
+  onTriggerTestAchievement,
   onOpenAssetManager,
+  showMetaLines = true,
+  onToggleMetaLines,
+  difficultyMode = 'hard',
+  onSelectDifficultyMode,
+  isReferenceVisible = false,
+  onToggleReferenceOverlay,
 }) => {
   const [simUser, setSimUser] = useState('JugadorPro');
   const [simText, setSimText] = useState('!rojo');
   const [editUsername, setEditUsername] = useState(tiktokUsername || '');
   const [isUpdatingUser, setIsUpdatingUser] = useState(false);
+  const [isUploadingAudio, setIsUploadingAudio] = useState(false);
+  const audioInputRef = React.useRef<HTMLInputElement>(null);
+
+  const handleAudioFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsUploadingAudio(true);
+    try {
+      if (onUploadCustomBgm) {
+        await onUploadCustomBgm(file);
+      }
+    } finally {
+      setIsUploadingAudio(false);
+      if (audioInputRef.current) audioInputRef.current.value = '';
+    }
+  };
 
   const handleSaveUsername = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -345,6 +389,14 @@ export const StreamerPanel: React.FC<StreamerPanelProps> = ({
               <span>👑 Ronda de Oro (30s Puntos x2)</span>
             </button>
           )}
+          {onTriggerTestAchievement && (
+            <button
+              onClick={onTriggerTestAchievement}
+              className="bg-gradient-to-r from-amber-600 via-yellow-600 to-amber-500 hover:from-amber-500 hover:to-yellow-400 text-white border border-yellow-300/50 px-2 py-1.5 rounded text-left font-black cursor-pointer flex items-center gap-1.5 col-span-2 shadow-[0_0_15px_rgba(245,158,11,0.3)] transition-all hover:scale-[1.01]"
+            >
+              <span>🎉 Probar Logro (Confeti + Destello)</span>
+            </button>
+          )}
           {onTriggerSurge && (
             <>
               <button
@@ -364,82 +416,252 @@ export const StreamerPanel: React.FC<StreamerPanelProps> = ({
         </div>
       </div>
 
-      {/* Retro 8-Bit Chiptune Audio Controller */}
-      <div className="flex flex-col gap-1.5 bg-black/40 p-2.5 rounded-xl border border-yellow-500/20">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-1.5 text-yellow-300 font-bold text-[11px]">
-            <Music size={13} />
-            <span>MÚSICA RETRO 8-BIT</span>
-          </div>
-          <span className="text-[9px] bg-yellow-500/20 text-yellow-300 px-1.5 py-0.5 rounded border border-yellow-500/30 font-mono">
-            NES Chiptune
+      {/* Estudio de Sprites, Metas y Referencia (Controles de Streamer) */}
+      <div className="flex flex-col gap-2.5 p-3 rounded-xl bg-gradient-to-br from-[#1d172e] via-[#161426] to-[#0e0d18] border border-purple-500/40 shadow-xl">
+        <div className="flex items-center justify-between border-b border-purple-500/20 pb-1.5">
+          <span className="text-purple-300 font-bold text-[11px] flex items-center gap-1.5 font-['Press_Start_2P']">
+            <span>🎨</span> ESTUDIO & METAS
+          </span>
+          <span className="text-[9px] bg-purple-500/20 text-purple-200 px-1.5 py-0.5 rounded border border-purple-500/30 font-mono">
+            Panel Streamer
           </span>
         </div>
-        <div className="text-[10px] text-neutral-300">
-          Sintetizador chiptune con onda cuadrada (leads/arpegios), triangular (bajo) y ruido blanco (batería).
+
+        {/* Botón Principal: Abrir Estudio de Sprites */}
+        {onOpenAssetManager && (
+          <button
+            type="button"
+            onClick={onOpenAssetManager}
+            className="w-full py-2 px-3 bg-gradient-to-r from-purple-600 via-pink-600 to-red-600 hover:from-purple-500 hover:to-red-500 text-white font-black rounded-xl shadow-[0_0_15px_rgba(168,85,247,0.3)] border border-white/20 flex items-center justify-center gap-2 cursor-pointer transition-all hover:scale-[1.02] active:scale-95 text-[10px] font-['Press_Start_2P']"
+          >
+            <span>🎨</span>
+            <span>ABRIR ESTUDIO SPRITES</span>
+          </button>
+        )}
+
+        {/* Fila de Botones: Metas y Referencia */}
+        <div className="grid grid-cols-2 gap-2">
+          {/* Toggle Metas */}
+          {onToggleMetaLines && (
+            <button
+              type="button"
+              onClick={onToggleMetaLines}
+              className={`p-2 rounded-lg border text-left transition-all cursor-pointer flex flex-col gap-1 ${
+                showMetaLines
+                  ? 'bg-amber-950/50 border-amber-500/60 text-amber-200 shadow-sm'
+                  : 'bg-black/50 border-white/10 text-neutral-400 hover:text-white'
+              }`}
+            >
+              <div className="flex items-center justify-between text-[11px] font-bold">
+                <span className="flex items-center gap-1">
+                  <span>🏁</span> Metas
+                </span>
+                <span
+                  className={`text-[9px] px-1.5 py-0.5 rounded font-mono font-bold ${
+                    showMetaLines ? 'bg-amber-500 text-black' : 'bg-neutral-800 text-neutral-400'
+                  }`}
+                >
+                  {showMetaLines ? 'VISIBLES' : 'OCULTAS'}
+                </span>
+              </div>
+              <span className="text-[9px] text-neutral-400 leading-tight">
+                {showMetaLines ? 'Líneas rojas y azules en arena' : 'Arena 100% limpia'}
+              </span>
+            </button>
+          )}
+
+          {/* Toggle Referencia */}
+          {onToggleReferenceOverlay && (
+            <button
+              type="button"
+              onClick={onToggleReferenceOverlay}
+              className={`p-2 rounded-lg border text-left transition-all cursor-pointer flex flex-col gap-1 ${
+                isReferenceVisible
+                  ? 'bg-purple-950/60 border-purple-500/70 text-purple-200 shadow-sm'
+                  : 'bg-black/50 border-white/10 text-neutral-400 hover:text-white'
+              }`}
+            >
+              <div className="flex items-center justify-between text-[11px] font-bold">
+                <span className="flex items-center gap-1">
+                  <span>👁️</span> Referencia
+                </span>
+                <span
+                  className={`text-[9px] px-1.5 py-0.5 rounded font-mono font-bold ${
+                    isReferenceVisible ? 'bg-purple-500 text-white' : 'bg-neutral-800 text-neutral-400'
+                  }`}
+                >
+                  {isReferenceVisible ? 'ON' : 'OFF'}
+                </span>
+              </div>
+              <span className="text-[9px] text-neutral-400 leading-tight">
+                {isReferenceVisible ? 'Overlay sobre escena activo' : 'Overlay apagado'}
+              </span>
+            </button>
+          )}
         </div>
 
-        {/* 8-Bit Track Presets */}
-        <div className="flex flex-col gap-1 pt-0.5">
-          <span className="text-[9px] text-neutral-400 font-bold uppercase">Pista 8-Bit Activa:</span>
-          <div className="grid grid-cols-3 gap-1">
+        {/* Selector de Dificultad Competitiva */}
+        <div className="flex flex-col gap-1 pt-1.5 border-t border-white/10">
+          <div className="flex items-center justify-between text-[10px]">
+            <span className="text-neutral-300 font-bold uppercase">Dificultad de Puntos & Empuje:</span>
+            <span className="text-amber-300 font-mono font-bold">
+              {difficultyMode === 'extreme' ? 'Titán (0.02)' : difficultyMode === 'normal' ? 'Estándar (0.010)' : 'Competitivo (0.05)'}
+            </span>
+          </div>
+          <div className="grid grid-cols-3 gap-1 pt-0.5">
             <button
-              onClick={() => onSelectRetroTrack?.('battle')}
-              className={`py-1 px-1 rounded text-[10px] font-bold cursor-pointer text-center border transition-all ${
-                retroTrack === 'battle'
-                  ? 'bg-yellow-500/30 text-yellow-300 border-yellow-400 shadow-[0_0_8px_rgba(255,210,74,0.3)]'
-                  : 'bg-neutral-800 text-neutral-300 border-white/10 hover:bg-neutral-700'
+              type="button"
+              onClick={() => onSelectDifficultyMode?.('normal')}
+              className={`py-1.5 px-1 rounded text-[10px] font-bold cursor-pointer text-center border transition-all ${
+                difficultyMode === 'normal'
+                  ? 'bg-blue-600/30 text-blue-300 border-blue-400 shadow-sm'
+                  : 'bg-neutral-800 text-neutral-400 border-white/10 hover:bg-neutral-700'
               }`}
             >
-              🎮 Batalla
+              ⚡ Estándar (0.010)
             </button>
             <button
-              onClick={() => onSelectRetroTrack?.('arcade')}
-              className={`py-1 px-1 rounded text-[10px] font-bold cursor-pointer text-center border transition-all ${
-                retroTrack === 'arcade'
-                  ? 'bg-yellow-500/30 text-yellow-300 border-yellow-400 shadow-[0_0_8px_rgba(255,210,74,0.3)]'
-                  : 'bg-neutral-800 text-neutral-300 border-white/10 hover:bg-neutral-700'
+              type="button"
+              onClick={() => onSelectDifficultyMode?.('hard')}
+              className={`py-1.5 px-1 rounded text-[10px] font-bold cursor-pointer text-center border transition-all ${
+                (difficultyMode ?? 'hard') === 'hard'
+                  ? 'bg-amber-600/30 text-amber-300 border-amber-400 shadow-sm'
+                  : 'bg-neutral-800 text-neutral-400 border-white/10 hover:bg-neutral-700'
               }`}
             >
-              🕹️ Arcade
+              🔥 Competitivo (0.05)
             </button>
             <button
-              onClick={() => onSelectRetroTrack?.('boss')}
-              className={`py-1 px-1 rounded text-[10px] font-bold cursor-pointer text-center border transition-all ${
-                retroTrack === 'boss'
-                  ? 'bg-yellow-500/30 text-yellow-300 border-yellow-400 shadow-[0_0_8px_rgba(255,210,74,0.3)]'
-                  : 'bg-neutral-800 text-neutral-300 border-white/10 hover:bg-neutral-700'
+              type="button"
+              onClick={() => onSelectDifficultyMode?.('extreme')}
+              className={`py-1.5 px-1 rounded text-[10px] font-bold cursor-pointer text-center border transition-all ${
+                difficultyMode === 'extreme'
+                  ? 'bg-red-600/30 text-red-300 border-red-400 shadow-sm'
+                  : 'bg-neutral-800 text-neutral-400 border-white/10 hover:bg-neutral-700'
               }`}
             >
-              ⚔️ Boss
+              💀 Titán (0.02)
             </button>
+          </div>
+          <p className="text-[9px] text-neutral-400 leading-tight mt-0.5">
+            Estándar: 0.010 • Competitivo: 0.05 • Titán: 0.02 (Regalos y comentarios proporcionales)
+          </p>
+        </div>
+      </div>
+
+      {/* Música de Fondo & Volumen General (Controles Streamer) */}
+      <div className="flex flex-col gap-2.5 bg-gradient-to-br from-[#181528] via-[#12111c] to-[#0c0b14] p-3 rounded-xl border border-yellow-500/30 shadow-lg">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1.5 text-yellow-300 font-bold text-[11px] font-['Press_Start_2P']">
+            <Music size={13} className="text-yellow-400" />
+            <span>MÚSICA DE FONDO</span>
+          </div>
+          <span className="text-[9px] bg-yellow-500/20 text-yellow-300 px-2 py-0.5 rounded-full border border-yellow-500/30 font-mono font-bold flex items-center gap-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            BUCLE CONTINUO
+          </span>
+        </div>
+
+        {/* Cargar Canción Oficial (Archivo de Audio) */}
+        <div className="flex flex-col gap-1.5 p-2.5 rounded-lg bg-black/40 border border-white/10">
+          <input
+            type="file"
+            ref={audioInputRef}
+            onChange={handleAudioFileChange}
+            accept="audio/*,.mp3,.wav,.ogg,.m4a"
+            className="hidden"
+          />
+
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] text-neutral-300 font-bold">
+              Pista Oficial de la Transmisión:
+            </span>
+            {customBgmUrl ? (
+              <span className="text-[9px] text-emerald-400 font-mono font-bold flex items-center gap-1">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                Canción Oficial Activa
+              </span>
+            ) : (
+              <span className="text-[9px] text-yellow-400 font-mono font-bold">
+                8-Bit Retro Activo
+              </span>
+            )}
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => audioInputRef.current?.click()}
+              disabled={isUploadingAudio}
+              className="flex-1 py-2 px-3 bg-gradient-to-r from-amber-600 to-yellow-600 hover:from-amber-500 hover:to-yellow-500 text-white font-black text-[10px] rounded-lg border border-yellow-400/40 shadow cursor-pointer transition-all flex items-center justify-center gap-2 active:scale-95"
+            >
+              <Music size={13} />
+              <span>{isUploadingAudio ? 'Cargando Audio...' : customBgmUrl ? 'Cambiar Canción (MP3 / WAV)' : 'Subir Canción de Fondo (MP3)'}</span>
+            </button>
+
+            {customBgmUrl && onClearCustomBgm && (
+              <button
+                type="button"
+                onClick={onClearCustomBgm}
+                className="py-2 px-2.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-400 hover:text-white rounded-lg border border-white/10 text-[10px] cursor-pointer font-bold transition-colors"
+                title="Quitar canción personalizada y volver a 8-Bit por defecto"
+              >
+                Restaurar
+              </button>
+            )}
           </div>
         </div>
 
-        {/* 8-Bit Sound Test Trigger Grid */}
-        <span className="text-[9px] text-neutral-400 font-bold uppercase mt-1">Probar Efectos 8-Bit:</span>
-        <div className="grid grid-cols-3 gap-1">
-          <button
-            onClick={() => audio.playRoseChime()}
-            className="bg-neutral-800 hover:bg-neutral-700 py-1 rounded text-[10px] font-bold cursor-pointer text-center"
-            title="Prueba sonido 8-bit de moneda"
-          >
-            🪙 Moneda
-          </button>
-          <button
-            onClick={() => audio.playFirstGiftBell()}
-            className="bg-neutral-800 hover:bg-neutral-700 py-1 rounded text-[10px] font-bold cursor-pointer text-center"
-            title="Prueba sonido 8-bit de 1-Up"
-          >
-            🌟 1-Up
-          </button>
-          <button
-            onClick={() => audio.playRoundEndResolution('win')}
-            className="bg-neutral-800 hover:bg-neutral-700 py-1 rounded text-[10px] font-bold cursor-pointer text-center"
-            title="Prueba fanfarria 8-bit de victoria"
-          >
-            🏆 Victoria
-          </button>
+        {/* Control de Volumen General */}
+        <div className="flex flex-col gap-1.5 p-2.5 rounded-lg bg-black/40 border border-white/10">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] text-neutral-300 font-bold flex items-center gap-1.5">
+              <Volume2 size={13} className="text-yellow-400" />
+              <span>Volumen General:</span>
+            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-mono font-bold text-yellow-300">
+                {isMuted ? 'MUTE' : `${Math.round((masterVolume ?? 0.6) * 100)}%`}
+              </span>
+              {onToggleSound && (
+                <button
+                  type="button"
+                  onClick={onToggleSound}
+                  className={`px-2 py-0.5 rounded text-[9px] font-bold cursor-pointer transition-all border ${
+                    isMuted
+                      ? 'bg-red-950 text-red-300 border-red-500/40 hover:bg-red-900'
+                      : 'bg-emerald-950 text-emerald-300 border-emerald-500/40 hover:bg-emerald-900'
+                  }`}
+                >
+                  {isMuted ? 'Silenciado' : 'Activo'}
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 pt-0.5">
+            <span className="text-[9px] text-neutral-500 font-mono">0%</span>
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step="0.02"
+              value={isMuted ? 0 : masterVolume ?? 0.6}
+              onChange={(e) => {
+                const val = parseFloat(e.target.value);
+                onChangeMasterVolume?.(val);
+                if (isMuted && val > 0 && onToggleSound) {
+                  onToggleSound();
+                }
+              }}
+              className="w-full accent-yellow-400 cursor-pointer h-1.5 bg-neutral-800 rounded-lg appearance-none"
+            />
+            <span className="text-[9px] text-neutral-500 font-mono">100%</span>
+          </div>
+
+          <p className="text-[9px] text-neutral-400 leading-tight pt-1 border-t border-white/5">
+            💡 La música suena en bucle infinito continuo. Cuando un equipo supera el 70% de la soga o entra en peligro, el juego baja automáticamente el volumen y superpone los efectos de tensión de la batalla.
+          </p>
         </div>
       </div>
 

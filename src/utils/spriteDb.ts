@@ -86,3 +86,68 @@ export async function clearSpriteFramesFromDB(character: 'chica' | 'chico'): Pro
     return false;
   }
 }
+
+/**
+ * Guarda el archivo de audio completo de la música de fondo en IndexedDB
+ * Permite almacenar MP3/WAV de cualquier tamaño sin límites de localStorage
+ */
+export async function saveCustomAudioBlobToDB(blob: Blob, fileName?: string): Promise<boolean> {
+  try {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_CONFIG, 'readwrite');
+      const store = tx.objectStore(STORE_CONFIG);
+      const req = store.put({ blob, fileName: fileName || 'custom_bgm.mp3', timestamp: Date.now() }, 'custom_bgm_data');
+      req.onsuccess = () => resolve(true);
+      req.onerror = () => reject(req.error);
+    });
+  } catch (err) {
+    console.warn('[SpriteDB] Error al guardar audio en IndexedDB:', err);
+    return false;
+  }
+}
+
+/**
+ * Recupera el archivo de audio completo de la música de fondo desde IndexedDB
+ */
+export async function getCustomAudioBlobFromDB(): Promise<{ blob: Blob; fileName?: string } | null> {
+  try {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_CONFIG, 'readonly');
+      const store = tx.objectStore(STORE_CONFIG);
+      const req = store.get('custom_bgm_data');
+      req.onsuccess = () => {
+        const val = req.result;
+        if (val && val.blob instanceof Blob) {
+          resolve({ blob: val.blob, fileName: val.fileName });
+        } else {
+          resolve(null);
+        }
+      };
+      req.onerror = () => reject(req.error);
+    });
+  } catch (err) {
+    console.warn('[SpriteDB] Error al recuperar audio desde IndexedDB:', err);
+    return null;
+  }
+}
+
+/**
+ * Elimina la música de fondo de IndexedDB
+ */
+export async function clearCustomAudioBlobFromDB(): Promise<boolean> {
+  try {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_CONFIG, 'readwrite');
+      const store = tx.objectStore(STORE_CONFIG);
+      const req = store.delete('custom_bgm_data');
+      req.onsuccess = () => resolve(true);
+      req.onerror = () => reject(req.error);
+    });
+  } catch (err) {
+    console.warn('[SpriteDB] Error al borrar audio de IndexedDB:', err);
+    return false;
+  }
+}

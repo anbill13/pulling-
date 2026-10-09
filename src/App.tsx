@@ -20,6 +20,8 @@ import {
   ThankYouItem,
   TikTokIncomingEvent,
   CustomGameAssets,
+  RoundAchievement,
+  RoundAchievementId,
 } from './types';
 import { storage, validateStoragePersistence, StorageValidationResult, DEFAULT_CUSTOM_ASSETS } from './storage';
 import { audio, RetroTrackId } from './audio';
@@ -28,11 +30,19 @@ import { TestBotSimulator, BotIntensity, BotThemeId, BOT_THEMES } from './testBo
 import { PixelScene } from './components/PixelScene';
 import { TopBar } from './components/TopBar';
 import { Leaderboards } from './components/Leaderboards';
+import { PowersDisplay } from './components/PowersDisplay';
 import { Announcements } from './components/Announcements';
 import { Overlays } from './components/Overlays';
 import { StreamerPanel } from './components/StreamerPanel';
 import { SpriteStudioModal } from './components/SpriteStudioModal';
-import { getSpriteFramesFromDB } from './utils/spriteDb';
+import { AchievementOverlay } from './components/AchievementOverlay';
+import { ROUND_ACHIEVEMENTS_CATALOG } from './utils/achievements';
+import {
+  getSpriteFramesFromDB,
+  saveCustomAudioBlobToDB,
+  getCustomAudioBlobFromDB,
+  clearCustomAudioBlobFromDB,
+} from './utils/spriteDb';
 
 function escapeHtml(str: string): string {
   if (!str) return '';
@@ -65,6 +75,19 @@ export function useStorageValidation(): StorageValidationResult {
   }, []);
 
   return validationResult;
+}
+
+/**
+ * Escala de dificultad calibrada proporcionalmente:
+ * - Estándar ('normal'): 0.010
+ * - Competitivo ('hard'): 0.05
+ * - Titán ('extreme'): 0.02
+ */
+export function getDifficultyScale(assets?: CustomGameAssets): number {
+  if (assets?.pointScaleMultiplier != null) return assets.pointScaleMultiplier;
+  if (assets?.difficultyMode === 'extreme') return CONFIG.difficultyScales.extreme; // 0.02
+  if (assets?.difficultyMode === 'normal') return CONFIG.difficultyScales.normal;   // 0.010
+  return CONFIG.difficultyScales.hard;                                             // 0.05
 }
 
 export default function App() {
@@ -195,18 +218,122 @@ export default function App() {
   // Audio State
   const [isAudioUnlocked, setIsAudioUnlocked] = useState<boolean>(false);
   const [isMuted, setIsMuted] = useState<boolean>(false);
-  const [retroTrack, setRetroTrack] = useState<RetroTrackId>('battle');
+  const [masterVolume, setMasterVolume] = useState<number>(() => audio.getMasterVolume());
+  const [retroTrack, setRetroTrack] = useState<RetroTrackId>(() => audio.getCurrentTrack());
+  const [customBgmUrl, setCustomBgmUrl] = useState<string | null>(() => audio.getCustomAudioUrl());
+
+  useEffect(() => {
+    async function restoreAudio() {
+      try {
+        const stored = await getCustomAudioBlobFromDB();
+        if (stored && stored.blob) {
+          const blobUrl = URL.createObjectURL(stored.blob);
+          audio.setCustomAudioUrl(blobUrl);
+          setCustomBgmUrl(blobUrl);
+          setRetroTrack('custom');
+          return;
+        }
+      } catch (_e) {}
+      const url = audio.getCustomAudioUrl();
+      if (url) {
+        setCustomBgmUrl(url);
+        setRetroTrack('custom');
+      }
+    }
+    restoreAudio();
+  }, []);
+
+  // Auto-desbloquear audio en la primera interacción del usuario en la ventana
+  useEffect(() => {
+    const handleFirstInteraction = async () => {
+      if (!audio.isAudioUnlocked()) {
+        await audio.unlock();
+        setIsAudioUnlocked(true);
+      }
+    };
+    window.addEventListener('click', handleFirstInteraction, { once: true });
+    window.addEventListener('touchstart', handleFirstInteraction, { once: true });
+    return () => {
+      window.removeEventListener('click', handleFirstInteraction);
+      window.removeEventListener('touchstart', handleFirstInteraction);
+    };
+  }, []);
+
+  const handleChangeMasterVolume = (val: number) => {
+    setMasterVolume(val);
+    audio.setMasterVolume(val);
+  };
 
   const handleSelectRetroTrack = (track: RetroTrackId) => {
     setRetroTrack(track);
     audio.setTrack(track);
-    const trackNames: Record<RetroTrackId, string> = {
-      battle: '🎮 Batalla Pixel',
-      arcade: '🕹️ Arcade Retro',
-      boss: '⚔️ Boss Rush',
-    };
-    addSideNotice(`Pista 8-bit: ${trackNames[track] || track}`, '🎵');
   };
+
+  const handleUploadCustomBgm = async (file: File) => {
+    try {
+      addSideNotice(`Procesando audio: ${file.name}...`, '⏳');
+      // 1. Desbloquear motor de audio inmediatamente por el gesto del usuario
+      await audio.unlock();
+      setIsAudioUnlocked(true);
+      setIsMuted(false);
+
+      // 2. Guardar Blob de audio en IndexedDB para persistencia inmediata y duradera
+      await saveCustomAudioBlobToDB(file, file.name);
+
+      // 3. Asignar URL de objeto blob instantánea (cero latencia, reproducción ininterrumpida)
+      const blobUrl = URL.createObjectURL(file);
+      audio.setCustomAudioUrl(blobUrl);
+      setCustomBgmUrl(blobUrl);
+      setRetroTrack('custom');
+
+      // 4. Subir en segundo plano al servidor para guardar en disco sin interrumpir el audio en reproducción
+      const reader = new FileReader();
+      reader.onload = async () => {
+        try {
+          const dataUrl = reader.result as string;
+          await fetch('/api/upload-bgm', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ audioData: dataUrl, filename: file.name }),
+          });
+        } catch (_serverErr) {
+          console.warn('[Audio] Notice saving to server:', _serverErr);
+        }
+      };
+      reader.readAsDataURL(file);
+
+      addSideNotice('¡Música de fondo activa y sonando en bucle!', '🎵');
+    } catch (err: any) {
+      console.error('[Audio Upload Error]:', err);
+      addSideNotice('Error al procesar archivo de audio', '❌');
+    }
+  };
+
+  const handleClearCustomBgm = async () => {
+    await clearCustomAudioBlobFromDB();
+    audio.setCustomAudioUrl(null);
+    setCustomBgmUrl(null);
+    setRetroTrack('battle');
+    addSideNotice('Música restaurada a 8-Bit Batalla', '🎮');
+  };
+
+  // Round Speed Achievements State
+  const [currentAchievement, setCurrentAchievement] = useState<RoundAchievement | null>(null);
+  const achievementTimeoutRef = useRef<number | null>(null);
+  const roundUnlockedAchievementsRef = useRef<Set<RoundAchievementId>>(new Set());
+  const userRoundLikesRef = useRef<Record<string, number>>({});
+  const teamFirstCommentRef = useRef<{ rojo: boolean; azul: boolean }>({ rojo: false, azul: false });
+  const roundFirstRoseRef = useRef<boolean>(false);
+
+  // Reset round achievements at the start of a round
+  useEffect(() => {
+    if (phase === 'round' || phase === 'intro' || phase === 'lobby') {
+      roundUnlockedAchievementsRef.current.clear();
+      userRoundLikesRef.current = {};
+      teamFirstCommentRef.current = { rojo: false, azul: false };
+      roundFirstRoseRef.current = false;
+    }
+  }, [phase, roundNumber]);
 
   // Custom Layer Assets State (Capa 1 a 4)
   const [customAssets, setCustomAssets] = useState<CustomGameAssets>(() => {
@@ -296,12 +423,12 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isAudioUnlocked]);
 
-  // Sync Audio Engine State
+  // Sync Audio Engine State: activa automáticamente tensión y ducking al superar el 70% de la soga
   useEffect(() => {
     audio.setGameState({
       phase,
       ropeV,
-      isTension: phase === 'round' && timeLeft <= CONFIG.tensionSeconds,
+      isTension: phase === 'round' && (timeLeft <= CONFIG.tensionSeconds || Math.abs(ropeV) >= 70),
       isRedLight: redLight.state === 'red',
       isAmberAlert: redLight.state === 'amber',
     });
@@ -358,6 +485,82 @@ export default function App() {
     };
     setSideNotices((prev) => [...prev.slice(-5), notice]);
   }, []);
+
+  const triggerRoundAchievement = useCallback(
+    (
+      achievementId: RoundAchievementId,
+      player: { name: string; formattedNumber?: string; team: Team }
+    ) => {
+      if (roundUnlockedAchievementsRef.current.has(achievementId)) return;
+      roundUnlockedAchievementsRef.current.add(achievementId);
+
+      const meta = ROUND_ACHIEVEMENTS_CATALOG[achievementId];
+      if (!meta) return;
+
+      const achievement: RoundAchievement = {
+        id: Math.random().toString(36).slice(2, 9),
+        achievementId,
+        title: meta.title,
+        description: meta.description,
+        icon: meta.icon,
+        team: player.team,
+        userName: player.name,
+        userFormatted: player.formattedNumber,
+        unlockedAt: Date.now(),
+      };
+
+      // Tocar fanfarria triunfal de logro
+      audio.playAchievementUnlock();
+
+      // Desplegar overlay de confeti y destello
+      setCurrentAchievement(achievement);
+
+      if (achievementTimeoutRef.current) {
+        window.clearTimeout(achievementTimeoutRef.current);
+      }
+      achievementTimeoutRef.current = window.setTimeout(() => {
+        setCurrentAchievement(null);
+        achievementTimeoutRef.current = null;
+      }, 3800);
+
+      addSideNotice(`¡Logro! @${player.name} logró ${meta.title}`, meta.icon);
+    },
+    [addSideNotice]
+  );
+
+  // Alternar visibilidad de las líneas de meta (rojo y azul)
+  const handleToggleMetaLines = useCallback(() => {
+    setCustomAssets((prev) => {
+      const nextVal = prev.showMetaLines === false ? true : false;
+      const updated = { ...prev, showMetaLines: nextVal };
+      storage.saveCustomAssets?.(updated);
+      addSideNotice(nextVal ? 'Líneas de Meta: Visibles' : 'Líneas de Meta: Ocultas', '🏁');
+      return updated;
+    });
+  }, [addSideNotice]);
+
+  // Selección de modo de dificultad competitiva (menos puntos y empuje para mayor esfuerzo)
+  const handleSelectDifficultyMode = useCallback(
+    (mode: 'normal' | 'hard' | 'extreme') => {
+      const mult = mode === 'extreme' ? 0.02 : mode === 'normal' ? 0.10 : 0.05;
+      setCustomAssets((prev) => {
+        const updated: CustomGameAssets = {
+          ...prev,
+          difficultyMode: mode,
+          pointScaleMultiplier: mult,
+        };
+        storage.saveCustomAssets?.(updated);
+        const names = {
+          normal: 'Estándar (0.10x)',
+          hard: 'Competitivo (0.05x)',
+          extreme: 'Titán (0.02x)',
+        };
+        addSideNotice(`Dificultad: ${names[mode]}`, '🔥');
+        return updated;
+      });
+    },
+    [addSideNotice]
+  );
 
   // --- GOLDEN ROUND CONTROLLER ---
   const triggerGoldenRound = useCallback(
@@ -769,9 +972,27 @@ export default function App() {
           // Track abilities used by this user to alternate big modal on first send vs mini combo window on repeat
           const userAbilities = userAbilityUsageRef.current[userId] || new Set<string>();
 
+          const diffScale = getDifficultyScale(customAssets);
+          const giftScaleRatio = diffScale / 0.05; // Proporcional al modo: 0.2x en Estándar (0.010), 1.0x en Competitivo (0.05), 0.4x en Titán (0.02)
+
+          // Logros rápidos de ronda para regalos
+          if (isRose && !roundFirstRoseRef.current && stateRef.current.phase === 'round') {
+            roundFirstRoseRef.current = true;
+            triggerRoundAchievement('first_rose', player);
+          }
+          if (nextStreak >= 5 && !roundUnlockedAchievementsRef.current.has('gift_streak_5')) {
+            triggerRoundAchievement('gift_streak_5', player);
+          }
+          const isDangerDeficit =
+            (player.team === 'rojo' && stateRef.current.ropeV <= -45) ||
+            (player.team === 'azul' && stateRef.current.ropeV >= 45);
+          if (isDangerDeficit && !roundUnlockedAchievementsRef.current.has('danger_save')) {
+            triggerRoundAchievement('danger_save', player);
+          }
+
           // Rose (1 diamond)
           if (isRose) {
-            pushAmount = CONFIG.commentPush;
+            pushAmount = Number((CONFIG.rosePush * giftScaleRatio).toFixed(3));
             audio.playRoseChime();
             const isFirstRose = !userAbilities.has('rosa');
             if (isFirstRose) {
@@ -780,7 +1001,7 @@ export default function App() {
               addAnnouncement({
                 type: 'gift',
                 title: '¡ROSA!',
-                subtitle: '+1 empuje instantáneo sin enfriamiento',
+                subtitle: `+${pushAmount} empuje instantáneo proporcional`,
                 icon: '🌹',
                 team: player.team,
                 userFormatted: player.formattedNumber,
@@ -795,13 +1016,13 @@ export default function App() {
                 abilityName: 'Rosa',
                 icon: '🌹',
                 comboCount: nextStreak,
-                bonusText: '+1 Empuje',
+                bonusText: `+${pushAmount} Empuje`,
               });
             }
           }
-          // Shield (2-4 diamonds) -> +8 push
+          // Shield (2-4 diamonds) -> Escudo proporcional
           else if (diamonds >= CONFIG.shieldThresholdMin && diamonds <= CONFIG.shieldThresholdMax) {
-            pushAmount = CONFIG.shieldPush;
+            pushAmount = Number((CONFIG.shieldPush * giftScaleRatio).toFixed(3));
             const isFirstShield = !userAbilities.has('escudo');
             if (isFirstShield) {
               userAbilities.add('escudo');
@@ -809,7 +1030,7 @@ export default function App() {
               addAnnouncement({
                 type: 'gift',
                 title: '¡ESCUDO!',
-                subtitle: `+${CONFIG.shieldPush} de empuje a su equipo`,
+                subtitle: `+${pushAmount} de empuje a su equipo`,
                 icon: '🛡️',
                 team: player.team,
                 userFormatted: player.formattedNumber,
@@ -824,7 +1045,7 @@ export default function App() {
                 abilityName: 'Escudo',
                 icon: '🛡️',
                 comboCount: nextStreak,
-                bonusText: `+${CONFIG.shieldPush} Empuje`,
+                bonusText: `+${pushAmount} Empuje`,
               });
             }
           }
@@ -940,7 +1161,8 @@ export default function App() {
 
           if (CONFIG.comboMilestones.includes(nextStreak) || (nextStreak > 0 && nextStreak % 5 === 0)) {
             haptics.triggerCombo();
-            const bonus = CONFIG.comboBonuses[nextStreak] || 0;
+            const rawBonus = CONFIG.comboBonuses[nextStreak] || 0;
+            const bonus = Number((rawBonus * giftScaleRatio).toFixed(2));
             if (bonus > 0) {
               setRopeV((prev) => {
                 const delta = player.team === 'rojo' ? bonus : -bonus;
@@ -988,28 +1210,33 @@ export default function App() {
           ) {
             lastGiftRainRef.current[player.team] = now;
             audio.playGiftRain();
+            const rainBoost = Number((CONFIG.giftRainBoost * giftScaleRatio).toFixed(2));
             setRopeV((prev) => {
-              const delta = player.team === 'rojo' ? CONFIG.giftRainBoost : -CONFIG.giftRainBoost;
+              const delta = player.team === 'rojo' ? rainBoost : -rainBoost;
               return Math.max(-CONFIG.ropeMax, Math.min(CONFIG.ropeMax, prev + delta));
             });
             addAnnouncement({
               type: 'giftRain',
               title: '¡LLUVIA DE REGALOS!',
-              subtitle: `+${CONFIG.giftRainBoost} de empuje para Team ${player.team.toUpperCase()}`,
+              subtitle: `+${rainBoost} de empuje para Team ${player.team.toUpperCase()}`,
               icon: '🌧️',
               team: player.team,
               durationMs: 2600,
             });
           }
 
-          // Update player data
+          // Update player data (puntos proporcionales reducidos a la dificultad activa)
+          const giftPtsEarned = isRose
+            ? Number((0.5 * giftScaleRatio).toFixed(2))
+            : Math.max(0.05, Number((diamonds * 0.2 * giftScaleRatio).toFixed(2)));
+
           setPlayers((prev) => ({
             ...prev,
             [userId]: {
               ...player,
               lifetimeDiamonds: newLifetime,
               roundDiamonds: player.roundDiamonds + diamonds,
-              points: player.points + (isRose ? 1 : 0),
+              points: Number((player.points + giftPtsEarned).toFixed(2)),
               comboStreak: nextStreak,
               lastGiftTime: now,
               isRoseStreak: isStreakRose,
@@ -1047,7 +1274,17 @@ export default function App() {
         const isTension = stateRef.current.timeLeft <= CONFIG.tensionSeconds;
         const tensionMult = isTension ? 2 : 1;
 
-        const pushAmount = taps * CONFIG.likePush * teamMult * tensionMult;
+        // Logros rápidos de ronda: Racha de 10 y 25 Likes
+        const userLikes = (userRoundLikesRef.current[userId] || 0) + taps;
+        userRoundLikesRef.current[userId] = userLikes;
+        if (userLikes >= 10 && !roundUnlockedAchievementsRef.current.has('likes_streak_10')) {
+          triggerRoundAchievement('likes_streak_10', player);
+        } else if (userLikes >= 25 && !roundUnlockedAchievementsRef.current.has('likes_streak_25')) {
+          triggerRoundAchievement('likes_streak_25', player);
+        }
+
+        const diffScale = getDifficultyScale(customAssets);
+        const pushAmount = taps * CONFIG.likePush * teamMult * tensionMult * (diffScale / 0.05);
         setRopeV((prev) => {
           const delta = player.team === 'rojo' ? pushAmount : -pushAmount;
           return Math.max(-CONFIG.ropeMax, Math.min(CONFIG.ropeMax, prev + delta));
@@ -1065,6 +1302,15 @@ export default function App() {
         }
 
         if (stateRef.current.phase !== 'round') return;
+
+        // Logro rápido de ronda: Primer comentario de la ronda para su equipo
+        if (!teamFirstCommentRef.current[player.team]) {
+          teamFirstCommentRef.current[player.team] = true;
+          triggerRoundAchievement(
+            player.team === 'rojo' ? 'first_comment_rojo' : 'first_comment_azul',
+            player
+          );
+        }
 
         // 600ms comment cooldown
         if (now - player.lastCommentTime < CONFIG.commentCooldown) {
@@ -1180,8 +1426,10 @@ export default function App() {
         if (player.team === 'rojo' && activeEffects.rojoSlowedUntil > now) slowMult = CONFIG.slowFactor;
         if (player.team === 'azul' && activeEffects.azulSlowedUntil > now) slowMult = CONFIG.slowFactor;
 
+        const diffScale = getDifficultyScale(customAssets);
+
         const finalPush =
-          CONFIG.commentPush * teamMult * tensionMult * rubberMult * doubleMult * slowMult;
+          CONFIG.commentPush * teamMult * tensionMult * rubberMult * doubleMult * slowMult * (diffScale / 0.05);
 
         setRopeV((prev) => {
           const delta = player.team === 'rojo' ? finalPush : -finalPush;
@@ -1196,6 +1444,9 @@ export default function App() {
               const pts = Math.abs(Math.round(minRopeDeficitRef.current.rojo));
               minRopeDeficitRef.current.rojo = 0;
               audio.playComebackSweep();
+              if (!roundUnlockedAchievementsRef.current.has('epic_comeback')) {
+                triggerRoundAchievement('epic_comeback', player);
+              }
               addAnnouncement({
                 type: 'comeback',
                 title: '¡REMONTADA ROJO!',
@@ -1213,6 +1464,9 @@ export default function App() {
               const pts = Math.round(minRopeDeficitRef.current.azul);
               minRopeDeficitRef.current.azul = 0;
               audio.playComebackSweep();
+              if (!roundUnlockedAchievementsRef.current.has('epic_comeback')) {
+                triggerRoundAchievement('epic_comeback', player);
+              }
               addAnnouncement({
                 type: 'comeback',
                 title: '¡REMONTADA AZUL!',
@@ -1227,8 +1481,9 @@ export default function App() {
           return nextV;
         });
 
-        // Award personal points & rank promotion check
-        const nextPoints = player.points + pointsMult;
+        // Award personal points (calibrado a estandar 0.10, competitivo 0.05, titan 0.02)
+        const ptsEarned = Number((pointsMult * diffScale).toFixed(2));
+        const nextPoints = Number((player.points + ptsEarned).toFixed(2));
         let prevRank = CONFIG.ranks[0];
         let newRank = CONFIG.ranks[0];
         for (const r of CONFIG.ranks) {
@@ -1431,8 +1686,9 @@ export default function App() {
         startIntro();
       }
 
-      // Proportional push with tactile effect
-      const pushAmount = 3.5;
+      // Proportional push with tactile effect (calibrado a estándar 0.010, competitivo 0.05, titán 0.02)
+      const diffScale = getDifficultyScale(customAssets);
+      const pushAmount = 0.5 * (diffScale / 0.05);
       setRopeV((prev) => {
         const delta = team === 'rojo' ? pushAmount : -pushAmount;
         return Math.max(-CONFIG.ropeMax, Math.min(CONFIG.ropeMax, prev + delta));
@@ -1444,7 +1700,7 @@ export default function App() {
       haptics.triggerTap();
       addSideNotice(`¡Tirón de ${team === 'rojo' ? '🔴 Team Rojo' : '🔵 Team Azul'}!`, '✊');
     },
-    [startIntro, haptics, addSideNotice]
+    [startIntro, haptics, addSideNotice, customAssets]
   );
 
   const endRound = useCallback(
@@ -1660,7 +1916,7 @@ export default function App() {
           });
         }
 
-        // Check Instant Win by reaching ±100
+        // Check Win Condition: Para poder ganar, la bandana DEBE llegar a la línea de meta (±CONFIG.ropeMax)
         if (s.ropeV >= CONFIG.ropeMax) {
           endRound('rojo');
           return;
@@ -1671,12 +1927,20 @@ export default function App() {
 
         // Decrease timeLeft every 100ms
         setTimeLeft((prev) => {
+          if (prev <= 0) return 0; // Muerte súbita activa: continúa hasta que la bandana llegue a la meta
           const next = Math.max(0, parseFloat((prev - 0.1).toFixed(1)));
-          if (next <= 0) {
-            // Time expired: determine winner by rope sign
-            const finalWinner = s.ropeV > 0 ? 'rojo' : s.ropeV < 0 ? 'azul' : 'tie';
-            endRound(finalWinner);
-            return 0;
+          if (next === 0 && prev > 0) {
+            // Regla mandatoria: La bandana DEBE llegar a la meta para ganar
+            addAnnouncement({
+              type: 'suddenDeath',
+              title: '¡MUERTE SÚBITA!',
+              subtitle: '¡La bandana DEBE llegar a la meta para ganar!',
+              icon: '⚡',
+              durationMs: 3500,
+            });
+            try {
+              audio.playComebackSweep();
+            } catch (_e) {}
           }
           return next;
         });
@@ -1793,6 +2057,7 @@ export default function App() {
             customAssets={customAssets}
             onManualPull={handleManualPull}
             onOpenAssetManager={() => setIsAssetModalOpen(true)}
+            onToggleMetaLines={handleToggleMetaLines}
             onToggleReferenceOverlay={() => {
               setCustomAssets((prev) => {
                 const next = {
@@ -1832,6 +2097,9 @@ export default function App() {
             onSkipIntro={startRoundDirectly}
           />
         </div>
+
+        {/* Sección de Poderes del Juego visible para los usuarios y espectadores */}
+        <PowersDisplay activeEffects={activeEffects} />
 
         {/* Real-time Top 5 Leaderboards */}
         <Leaderboards
@@ -1941,10 +2209,40 @@ export default function App() {
         tiktokUsername={tiktokUsername}
         tiktokMode={tiktokMode}
         onUpdateTikTokUsername={handleUpdateTikTokUsername}
-        retroTrack={retroTrack}
-        onSelectRetroTrack={handleSelectRetroTrack}
+        isMuted={isMuted}
+        onToggleSound={handleToggleSound}
+        masterVolume={masterVolume}
+        onChangeMasterVolume={handleChangeMasterVolume}
+        onTriggerTestAchievement={() => {
+          triggerRoundAchievement('likes_streak_10', {
+            name: 'CampeónTikTok',
+            formattedNumber: '#777',
+            team: 'rojo',
+          });
+        }}
+        customBgmUrl={customBgmUrl}
+        onUploadCustomBgm={handleUploadCustomBgm}
+        onClearCustomBgm={handleClearCustomBgm}
         onOpenAssetManager={() => setIsAssetModalOpen(true)}
+        showMetaLines={customAssets?.showMetaLines ?? true}
+        onToggleMetaLines={handleToggleMetaLines}
+        difficultyMode={customAssets?.difficultyMode ?? 'hard'}
+        onSelectDifficultyMode={handleSelectDifficultyMode}
+        isReferenceVisible={customAssets?.referenceVisible ?? false}
+        onToggleReferenceOverlay={() => {
+          setCustomAssets((prev) => {
+            const next = {
+              ...prev,
+              referenceVisible: !prev.referenceVisible,
+            };
+            storage.saveCustomAssets?.(next);
+            return next;
+          });
+        }}
       />
+
+      {/* Overlay de Logros Rápidos de Ronda (Confeti, Destello y Fanfarria) */}
+      <AchievementOverlay currentAchievement={currentAchievement} />
 
       {/* Estudio de Sprites, Activos y Referencia */}
       <SpriteStudioModal

@@ -36,6 +36,11 @@ export const Leaderboards: React.FC<LeaderboardsProps> = ({
     return '';
   };
 
+  const formatPts = (pts: number) => {
+    if (Number.isInteger(pts)) return pts.toString();
+    return Number(pts.toFixed(2)).toString();
+  };
+
   return (
     <div className="w-full grid grid-cols-2 gap-2 text-xs">
       {/* Team Rojo Leaderboard */}
@@ -76,7 +81,7 @@ export const Leaderboards: React.FC<LeaderboardsProps> = ({
                     </span>
                   </div>
                   <span className="text-[#ff3b3b] font-extrabold font-mono text-[11px]">
-                    {player.points}
+                    {formatPts(player.points)}
                   </span>
                 </div>
               );
@@ -123,7 +128,7 @@ export const Leaderboards: React.FC<LeaderboardsProps> = ({
                     </span>
                   </div>
                   <span className="text-[#3da5ff] font-extrabold font-mono text-[11px]">
-                    {player.points}
+                    {formatPts(player.points)}
                   </span>
                 </div>
               );
